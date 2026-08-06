@@ -1,6 +1,6 @@
 import { findCorners, findCurvedEdges, rectifyCurvedEdges, transformPerspective } from './geometry.js';
-import { cleanBackground } from './filters.js';
-import { getMousePosition, renderCornersOverlay, renderCurvedEdgesOverlay } from './ui.js';
+import { normalizeBrightness } from './filters.js';
+import { getMousePosition, renderCornersOverlay, renderCurvedEdgesOverlay, renderBrightnessOverlay } from './ui.js';
 
 let currentMat = null;
 let corners = [];
@@ -28,7 +28,8 @@ const geometryControls = document.getElementById('geometryControls');
 const findCurvedEdgesBtn = document.getElementById('findCurvedEdgesBtn');
 const curvedInfo = document.getElementById('curvedInfo');
 const fixCurvedEdgesBtn = document.getElementById('fixCurvedEdgesBtn');
-const normalizeBtn = document.getElementById('normalizeBtn');
+const analyzeBrightnessBtn = document.getElementById('analyzeBrightnessBtn');
+const normalizeBrightnessBtn = document.getElementById('normalizeBrightnessBtn');
 const saveBtn = document.getElementById('saveBtn');
 const inputFilename = document.getElementById('input_filename');
 const processStatus = document.getElementById('processStatus');
@@ -60,7 +61,8 @@ function syncUi() {
     setInactive(curvedInfo, !state.curvesReady);
     setInactive(fixCurvedEdgesBtn, !state.imageLoaded || !state.curvesReady || state.busy);
 
-    setInactive(normalizeBtn, !state.imageLoaded || state.busy);
+    setInactive(analyzeBrightnessBtn, !state.imageLoaded || state.busy);
+    setInactive(normalizeBrightnessBtn, !state.imageLoaded || state.busy);
     setInactive(saveBtn, !state.imageLoaded || !outputImageDataUrl || state.busy);
 }
 
@@ -79,22 +81,6 @@ function renderRawCanvas() {
     ctxInput.clearRect(0, 0, canvas.width, canvas.height);
     cv.imshow(canvas.id, currentMat);
 }
-
-// function renderCorners() {
-//     if (!currentMat || corners.length !== 4) {
-//         renderRawCanvas();
-//         return;
-//     }
-//     renderCornersOverlay(canvas, ctxInput, currentMat, corners);
-// }
-
-// function renderCurvedEdges() {
-//     if (!currentMat || corners.length !== 4) {
-//         renderRawCanvas();
-//         return;
-//     }
-//     renderCurvedEdgesOverlay(canvas, ctxInput, currentMat, corners, edgePoints);
-// }
 
 function setCurrentMat(nextMat) {
     if (currentMat) currentMat.delete();
@@ -246,12 +232,21 @@ fixCurvedEdgesBtn.addEventListener('click', () => {
     });
 });
 
+// Клик по кнопке "Анализировать яркость"
+analyzeBrightnessBtn.addEventListener('click', () => {
+    if (!currentMat) return;
+
+    runStep('Анализ яркости...', () => {
+        renderBrightnessOverlay(canvas, ctxInput, currentMat, originalFileName);
+    });
+});
+
 // Клик по кнопке "Нормализовать яркость"
-normalizeBtn.addEventListener('click', () => {
+normalizeBrightnessBtn.addEventListener('click', () => {
     if (!currentMat) return;
 
     runStep('Выравнивание яркости...', () => {
-        const finalMat = cleanBackground(currentMat, BRIGHTNESS_CONTRAST, BRIGHTNESS_OFFSET);
+        const finalMat = normalizeBrightness(currentMat, BRIGHTNESS_CONTRAST, BRIGHTNESS_OFFSET);
         setCurrentMat(finalMat);
         resetGeometryState();
         renderRawCanvas();

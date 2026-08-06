@@ -1,7 +1,7 @@
 /**
  * Высокоточный и быстрый модуль очистки фона через пирамиду масштабирования
  */
-export function cleanBackground(srcMat, contrastFactor = 1.1, brightnessOffset = -10) {
+export function normalizeBrightness(srcMat, contrastFactor = 1.1, brightnessOffset = -10) {
     let channels = new cv.MatVector();
     let cleanedChannels = new cv.MatVector();
     
@@ -39,7 +39,7 @@ export function cleanBackground(srcMat, contrastFactor = 1.1, brightnessOffset =
 
         cleanedChannels.push_back(finalChannel);
 
-        // Чистим память временных матриц в цикле
+        // Чистим память временных матриц
         channel.delete(); lowRes.delete(); lowResBlurred.delete(); background.delete(); normalized.delete();
     }
 
