@@ -1,20 +1,36 @@
-import { autoFindCorners, transformPerspective } from './geometry.js';
+import { findCorners, findCurvedEdges, rectifyCurvedEdges, transformPerspective } from './geometry.js';
 import { cleanBackground } from './filters.js';
-import { drawGrid, getMousePosition } from './ui.js';
+import { getMousePosition, renderCornersOverlay, renderCurvedEdgesOverlay } from './ui.js';
 
-let srcMat = null;
+let currentMat = null;
 let corners = [];
+let edgePoints = [];
 let dragIdx = -1;
 let originalFileName = 'image';
+let outputImageDataUrl = '';
 
-const canvasInput = document.getElementById('canvasInput');
-const ctxInput = canvasInput.getContext('2d');
-const canvasOutput = document.getElementById('canvasOutput');
+const state = {
+    imageLoaded: false,
+    cornersChecked: false,
+    cornersFound: false,
+    curvesReady: false,
+    busy: false
+};
+
+const canvas = document.getElementById('canvas');
+const ctxInput = canvas.getContext('2d');
+const opencvStatus = document.getElementById('opencvStatus');
 const fileInput = document.getElementById('fileInput');
+const findCornersBtn = document.getElementById('findCornersBtn');
+const cornersStatus = document.getElementById('cornersStatus');
 const fixGeometryBtn = document.getElementById('fixGeometryBtn');
+const geometryControls = document.getElementById('geometryControls');
+const findCurvedEdgesBtn = document.getElementById('findCurvedEdgesBtn');
+const curvedInfo = document.getElementById('curvedInfo');
+const fixCurvedEdgesBtn = document.getElementById('fixCurvedEdgesBtn');
 const normalizeBtn = document.getElementById('normalizeBtn');
 const saveBtn = document.getElementById('saveBtn');
-const opencvStatus = document.getElementById('opencv_status');
+const inputFilename = document.getElementById('input_filename');
 const processStatus = document.getElementById('processStatus');
 
 const marginInput = document.getElementById('marginInput');
@@ -23,34 +39,103 @@ const marginValue = document.getElementById('marginValue');
 // Константы выравнивания освещения (вместо UI-контролов)
 const BRIGHTNESS_CONTRAST = 1.1;
 const BRIGHTNESS_OFFSET = -10;
-let outputImageDataUrl = '';
 
 // Синхронизация ползунков полей
 marginInput.addEventListener('input', (e) => marginValue.value = e.target.value);
 marginValue.addEventListener('input', (e) => marginInput.value = e.target.value);
 
-function updateSaveButton() {
-    outputImageDataUrl = canvasOutput.toDataURL('image/png');
-    saveBtn.disabled = false;
+function setInactive(element, inactive) {
+    if (!element) return;
+    element.classList.toggle('inactive', inactive);
+    if (element.tagName === 'BUTTON') element.disabled = inactive;
 }
 
-function renderOutput({ normalize = false } = {}) {
-    if (!srcMat) return;
+function syncUi() {
+    setInactive(findCornersBtn, !state.imageLoaded || state.busy);
+    setInactive(cornersStatus, !state.cornersChecked);
+    setInactive(fixGeometryBtn, !state.imageLoaded || !state.cornersFound || state.busy);
+    setInactive(geometryControls, !state.cornersFound);
 
-    const margin = parseInt(marginInput.value, 10) || 0;
-    let warpedMat = transformPerspective(srcMat, corners, margin);
+    setInactive(findCurvedEdgesBtn, !state.imageLoaded || state.busy);
+    setInactive(curvedInfo, !state.curvesReady);
+    setInactive(fixCurvedEdgesBtn, !state.imageLoaded || !state.curvesReady || state.busy);
 
-    if (normalize) {
-        let finalMat = cleanBackground(warpedMat, BRIGHTNESS_CONTRAST, BRIGHTNESS_OFFSET);
-        cv.imshow('canvasOutput', finalMat);
-        warpedMat.delete();
-        finalMat.delete();
-    } else {
-        cv.imshow('canvasOutput', warpedMat);
-        warpedMat.delete();
+    setInactive(normalizeBtn, !state.imageLoaded || state.busy);
+    setInactive(saveBtn, !state.imageLoaded || !outputImageDataUrl || state.busy);
+}
+
+function resetGeometryState() {
+    corners = [];
+    edgePoints = [];
+    dragIdx = -1;
+    state.cornersChecked = false;
+    state.cornersFound = false;
+    state.curvesReady = false;
+}
+
+function renderRawCanvas() {
+    if (!currentMat) return;
+
+    ctxInput.clearRect(0, 0, canvas.width, canvas.height);
+    cv.imshow(canvas.id, currentMat);
+}
+
+// function renderCorners() {
+//     if (!currentMat || corners.length !== 4) {
+//         renderRawCanvas();
+//         return;
+//     }
+//     renderCornersOverlay(canvas, ctxInput, currentMat, corners);
+// }
+
+// function renderCurvedEdges() {
+//     if (!currentMat || corners.length !== 4) {
+//         renderRawCanvas();
+//         return;
+//     }
+//     renderCurvedEdgesOverlay(canvas, ctxInput, currentMat, corners, edgePoints);
+// }
+
+function setCurrentMat(nextMat) {
+    if (currentMat) currentMat.delete();
+    currentMat = nextMat;
+    canvas.width = currentMat.cols;
+    canvas.height = currentMat.rows;
+}
+
+function updateSaveData() {
+    if (!currentMat) {
+        outputImageDataUrl = '';
+        syncUi();
+        return;
     }
 
-    updateSaveButton();
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width = currentMat.cols;
+    exportCanvas.height = currentMat.rows;
+    cv.imshow(exportCanvas, currentMat);
+    outputImageDataUrl = exportCanvas.toDataURL('image/png');
+    syncUi();
+}
+
+function runStep(statusText, action) {
+    if (!currentMat) return;
+
+    state.busy = true;
+    processStatus.innerText = statusText;
+    syncUi();
+
+    setTimeout(() => {
+        try {
+            action();
+            processStatus.innerText = 'Готово!';
+        } catch (error) {
+            processStatus.innerText = `Ошибка: ${error.message || error}`;
+        } finally {
+            state.busy = false;
+            syncUi();
+        }
+    }, 50);
 }
 
 saveBtn.addEventListener('click', () => {
@@ -67,8 +152,8 @@ saveBtn.addEventListener('click', () => {
 const checkOpenCv = setInterval(() => {
     if (typeof window.cv !== 'undefined' && window.cv.Mat) {
         clearInterval(checkOpenCv);
-        opencvStatus.innerText = "OpenCV";
-        opencvStatus.className = "ready";
+        opencvStatus.innerText = 'OpenCV';
+        opencvStatus.className = 'ready';
         fileInput.disabled = false;
     }
 }, 100);
@@ -78,80 +163,121 @@ fileInput.addEventListener('change', (e) => {
     const files = e.target.files;
     if (!files || files.length === 0 || !(files[0] instanceof Blob)) return;
     originalFileName = files[0].name || 'image';
+    if (inputFilename) inputFilename.innerText = originalFileName;
 
     const reader = new FileReader();
     reader.onload = function(event) {
         const img = new Image();
         img.onload = function() {
-            canvasInput.width = img.width;
-            canvasInput.height = img.height;
+            canvas.width = img.width;
+            canvas.height = img.height;
             ctxInput.drawImage(img, 0, 0);
-            
-            if (srcMat) srcMat.delete();
-            srcMat = cv.imread(canvasInput);
-            
-            corners = autoFindCorners(srcMat, canvasInput.width, canvasInput.height);
-            drawGrid(canvasInput, ctxInput, srcMat, corners);
-            fixGeometryBtn.disabled = false;
-            normalizeBtn.disabled = false;
-            saveBtn.disabled = true;
-            outputImageDataUrl = '';
+
+            const loadedMat = cv.imread(canvas);
+            setCurrentMat(loadedMat);
+
+            state.imageLoaded = true;
+            resetGeometryState();
+            renderRawCanvas();
+            updateSaveData();
         };
         img.src = event.target.result;
     };
     reader.readAsDataURL(files[0]);
 });
 
+findCornersBtn.addEventListener('click', () => {
+    if (!currentMat) return;
+
+    runStep('Поиск углов...', () => {
+        const result = findCorners(currentMat, currentMat.cols, currentMat.rows);
+        corners = result.corners;
+        edgePoints = [];
+        state.cornersChecked = true;
+        state.cornersFound = corners.length === 4;
+        state.curvesReady = false;
+
+        cornersStatus.innerText = (result.found ? 'Углы найдены автоматически' : 'Автопоиск не нашел углы, используется fallback') +
+            '; Перетащите зеленые кружочки';
+
+        renderRawCanvas();
+        renderCornersOverlay(canvas, ctxInput, currentMat, corners);
+    });
+});
+
 // Клик по кнопке "Выпрямить перспективу" с асинхронным статус-баром
 fixGeometryBtn.addEventListener('click', () => {
-    if (!srcMat) return;
+    if (!currentMat || !state.cornersFound) return;
 
-    processStatus.innerText = "Выпрямление геометрии...";
-    fixGeometryBtn.disabled = true;
-    normalizeBtn.disabled = true;
+    runStep('Выпрямление геометрии...', () => {
+        const margin = parseInt(marginInput.value, 10) || 0;
+        const warpedMat = transformPerspective(currentMat, corners, margin);
+        setCurrentMat(warpedMat);
+        resetGeometryState();
+        renderRawCanvas();
+        updateSaveData();
+    });
+});
 
-    setTimeout(() => {
-        renderOutput({ normalize: false });
+findCurvedEdgesBtn.addEventListener('click', () => {
+    if (!currentMat) return;
 
-        processStatus.innerText = "Готово!";
-        fixGeometryBtn.disabled = false;
-        normalizeBtn.disabled = false;
+    runStep('Поиск искривлений...', () => {
+        const result = findCurvedEdges(currentMat, currentMat.cols, currentMat.rows);
+        corners = result.corners;
+        edgePoints = result.edgePoints;
+        state.curvesReady = result.found && result.edgePoints.some(side => side.length > 0);
+        curvedInfo.innerText = 'Отрезки означают смещения граней к ровной линии';
 
-    }, 50);
+        renderRawCanvas();
+        renderCurvedEdgesOverlay(canvas, ctxInput, currentMat, corners, edgePoints);
+    });
+});
+
+fixCurvedEdgesBtn.addEventListener('click', () => {
+    if (!currentMat || !state.curvesReady) return;
+
+    runStep('Исправление кривых граней...', () => {
+        const correctedMat = rectifyCurvedEdges(currentMat, corners, edgePoints);
+        setCurrentMat(correctedMat);
+        resetGeometryState();
+        renderRawCanvas();
+        updateSaveData();
+    });
 });
 
 // Клик по кнопке "Нормализовать яркость"
 normalizeBtn.addEventListener('click', () => {
-    if (!srcMat) return;
+    if (!currentMat) return;
 
-    processStatus.innerText = "Выравнивание яркости...";
-    fixGeometryBtn.disabled = true;
-    normalizeBtn.disabled = true;
-
-    setTimeout(() => {
-        renderOutput({ normalize: true });
-
-        processStatus.innerText = "Готово!";
-        fixGeometryBtn.disabled = false;
-        normalizeBtn.disabled = false;
-
-    }, 50);
+    runStep('Выравнивание яркости...', () => {
+        const finalMat = cleanBackground(currentMat, BRIGHTNESS_CONTRAST, BRIGHTNESS_OFFSET);
+        setCurrentMat(finalMat);
+        resetGeometryState();
+        renderRawCanvas();
+        updateSaveData();
+    });
 });
 
 // Интерактивное управление маркерами
-canvasInput.addEventListener('mousedown', (e) => {
-    if (!srcMat) return;
-    const pos = getMousePosition(canvasInput, e);
-    const clickRadius = Math.max(20, canvasInput.width / 40);
+canvas.addEventListener('mousedown', (e) => {
+    if (!currentMat || !state.cornersFound || state.busy) return;
+    const pos = getMousePosition(canvas, e);
+    const clickRadius = Math.max(20, canvas.width / 40);
     dragIdx = corners.findIndex(p => Math.hypot(p.x - pos.x, p.y - pos.y) < clickRadius);
 });
 
-canvasInput.addEventListener('mousemove', (e) => {
-    if (dragIdx === -1 || !srcMat) return;
-    const pos = getMousePosition(canvasInput, e);
+canvas.addEventListener('mousemove', (e) => {
+    if (dragIdx === -1 || !currentMat || !state.cornersFound || state.busy) return;
+    const pos = getMousePosition(canvas, e);
     corners[dragIdx].x = pos.x;
     corners[dragIdx].y = pos.y;
-    drawGrid(canvasInput, ctxInput, srcMat, corners);
+    state.curvesReady = false;
+    renderRawCanvas();
+    renderCornersOverlay(canvas, ctxInput, currentMat, corners);
+    syncUi();
 });
 
 window.addEventListener('mouseup', () => dragIdx = -1);
+
+syncUi();

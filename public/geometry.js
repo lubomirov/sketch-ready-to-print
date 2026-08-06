@@ -1,3 +1,7 @@
+const EDGE_SAMPLES = 12;
+const CURVE_GRID_COLS = 10;
+const CURVE_GRID_ROWS = 15;
+
 // Безопасная сортировка 4 углов: верх-лево, верх-право, низ-право, низ-лево
 export function sortPoints(pts) {
     if (pts.length !== 4) return pts;
@@ -17,13 +21,53 @@ export function sortPoints(pts) {
     ];
 }
 
-// Автоматический поиск углов с использованием адаптивного порога Оцу
-export function autoFindCorners(src, imgWidth, imgHeight) {
+// Семплирование N точек вдоль каждого ребра из полного контура
+function sampleEdgePoints(contourPts, corners, n) {
+    const len = contourPts.length;
+    const indices = corners.map(c => {
+        let minDist = Infinity, minIdx = 0;
+        for (let i = 0; i < len; i++) {
+            const d = Math.hypot(contourPts[i].x - c.x, contourPts[i].y - c.y);
+            if (d < minDist) { minDist = d; minIdx = i; }
+        }
+        return minIdx;
+    });
+
+    return indices.map((ia, s) => {
+        const ib = indices[(s + 1) % 4];
+        const fwd = [];
+        let i = ia;
+        while (i !== ib) { fwd.push(contourPts[i]); i = (i + 1) % len; if (fwd.length > len) break; }
+        fwd.push(contourPts[ib]);
+
+        // Выбираем более короткий путь по контуру
+        let segment = fwd;
+        if (fwd.length > len / 2 + 1) {
+            const bwd = [];
+            let j = ia;
+            while (j !== ib) { bwd.push(contourPts[j]); j = (j - 1 + len) % len; if (bwd.length > len) break; }
+            bwd.push(contourPts[ib]);
+            segment = bwd;
+        }
+
+        const pts = [];
+        for (let k = 1; k <= n; k++) {
+            const t = k / (n + 1);
+            pts.push(segment[Math.round(t * (segment.length - 1))]);
+        }
+        return pts;
+    });
+}
+
+// Внутренний детектор геометрии листа: возвращает углы и точки кривизны
+function detectSheetGeometry(src, imgWidth, imgHeight) {
     let gray = new cv.Mat();
     let thresh = new cv.Mat();
     let someContours = new cv.MatVector();
     let hierarchy = new cv.Mat();
     let corners = [];
+    let edgePoints = [[], [], [], []];
+    let found = false;
 
     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
     
@@ -54,6 +98,12 @@ export function autoFindCorners(src, imgWidth, imgHeight) {
                 pts.push({ x: approx.data32S[i * 2], y: approx.data32S[i * 2 + 1] });
             }
             corners = sortPoints(pts);
+            found = true;
+
+            const contourPts = [];
+            for (let i = 0; i < contour.rows; i++)
+                contourPts.push({ x: contour.data32S[i * 2], y: contour.data32S[i * 2 + 1] });
+            edgePoints = sampleEdgePoints(contourPts, corners, EDGE_SAMPLES);
         }
         approx.delete();
     }
@@ -69,7 +119,19 @@ export function autoFindCorners(src, imgWidth, imgHeight) {
     }
 
     gray.delete(); thresh.delete(); someContours.delete(); hierarchy.delete();
-    return corners;
+    return { corners, edgePoints, found };
+}
+
+// Поиск только углов для шага геометрии
+export function findCorners(src, imgWidth, imgHeight) {
+    const result = detectSheetGeometry(src, imgWidth, imgHeight);
+    return { corners: result.corners, found: result.found };
+}
+
+// Поиск углов и точек кривизны для шага искривлений
+export function findCurvedEdges(src, imgWidth, imgHeight) {
+    const result = detectSheetGeometry(src, imgWidth, imgHeight);
+    return { corners: result.corners, edgePoints: result.edgePoints, found: result.found };
 }
 
 // Высокоточная бикубическая трансформация перспективы с добавлением оригинальных полей
@@ -111,4 +173,132 @@ export function transformPerspective(src, corners, margin = 0) {
 
     srcCoords.delete(); dstCoords.delete(); M.delete();
     return dst; 
+}
+
+function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+}
+
+function projectPointToSegment(point, start, end) {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const denom = dx * dx + dy * dy || 1;
+    const t = clamp(((point.x - start.x) * dx + (point.y - start.y) * dy) / denom, 0, 1);
+    return { x: start.x + t * dx, y: start.y + t * dy };
+}
+
+function buildCurveControlPairs(corners, edgePoints) {
+    const pairs = [];
+
+    corners.forEach((corner) => {
+        pairs.push({ actual: corner, ideal: corner });
+    });
+
+    edgePoints.forEach((side, sideIdx) => {
+        const start = corners[sideIdx];
+        const end = corners[(sideIdx + 1) % 4];
+
+        side.forEach((point) => {
+            pairs.push({
+                actual: point,
+                ideal: projectPointToSegment(point, start, end)
+            });
+        });
+    });
+
+    return pairs;
+}
+
+function buildInverseWarpNodes(width, height, controlPairs, cols, rows) {
+    const nodes = [];
+
+    for (let row = 0; row <= rows; row++) {
+        const nodeRow = [];
+        const y = rows === 0 ? 0 : (row / rows) * (height - 1);
+
+        for (let col = 0; col <= cols; col++) {
+            const x = cols === 0 ? 0 : (col / cols) * (width - 1);
+            let weightedDx = 0;
+            let weightedDy = 0;
+            let totalWeight = 0;
+            let snapPoint = null;
+
+            controlPairs.forEach(({ actual, ideal }) => {
+                const dx = actual.x - ideal.x;
+                const dy = actual.y - ideal.y;
+                const distSq = (x - ideal.x) * (x - ideal.x) + (y - ideal.y) * (y - ideal.y);
+
+                if (distSq < 1) {
+                    snapPoint = { x: actual.x, y: actual.y };
+                    return;
+                }
+
+                const weight = 1 / distSq;
+                weightedDx += dx * weight;
+                weightedDy += dy * weight;
+                totalWeight += weight;
+            });
+
+            if (snapPoint) {
+                nodeRow.push(snapPoint);
+            } else if (totalWeight > 0) {
+                nodeRow.push({ x: x + weightedDx / totalWeight, y: y + weightedDy / totalWeight });
+            } else {
+                nodeRow.push({ x, y });
+            }
+        }
+
+        nodes.push(nodeRow);
+    }
+
+    return nodes;
+}
+
+export function rectifyCurvedEdges(src, corners, edgePoints, cols = CURVE_GRID_COLS, rows = CURVE_GRID_ROWS) {
+    const controlPairs = buildCurveControlPairs(corners, edgePoints);
+    if (controlPairs.length === 0) return src.clone();
+
+    const inverseNodes = buildInverseWarpNodes(src.cols, src.rows, controlPairs, cols, rows);
+    const mapX = new cv.Mat(src.rows, src.cols, cv.CV_32FC1);
+    const mapY = new cv.Mat(src.rows, src.cols, cv.CV_32FC1);
+
+    for (let y = 0; y < src.rows; y++) {
+        const cellY = rows === 0 ? 0 : clamp((y / Math.max(src.rows - 1, 1)) * rows, 0, rows);
+        const row0 = Math.min(Math.floor(cellY), rows - 1);
+        const row1 = Math.min(row0 + 1, rows);
+        const ty = row1 === row0 ? 0 : cellY - row0;
+
+        for (let x = 0; x < src.cols; x++) {
+            const cellX = cols === 0 ? 0 : clamp((x / Math.max(src.cols - 1, 1)) * cols, 0, cols);
+            const col0 = Math.min(Math.floor(cellX), cols - 1);
+            const col1 = Math.min(col0 + 1, cols);
+            const tx = col1 === col0 ? 0 : cellX - col0;
+
+            const n00 = inverseNodes[row0][col0];
+            const n10 = inverseNodes[row0][col1];
+            const n01 = inverseNodes[row1][col0];
+            const n11 = inverseNodes[row1][col1];
+
+            const sourceX =
+                n00.x * (1 - tx) * (1 - ty) +
+                n10.x * tx * (1 - ty) +
+                n01.x * (1 - tx) * ty +
+                n11.x * tx * ty;
+            const sourceY =
+                n00.y * (1 - tx) * (1 - ty) +
+                n10.y * tx * (1 - ty) +
+                n01.y * (1 - tx) * ty +
+                n11.y * tx * ty;
+
+            mapX.floatPtr(y, x)[0] = clamp(sourceX, 0, src.cols - 1);
+            mapY.floatPtr(y, x)[0] = clamp(sourceY, 0, src.rows - 1);
+        }
+    }
+
+    const dst = new cv.Mat();
+    cv.remap(src, dst, mapX, mapY, cv.INTER_CUBIC, cv.BORDER_REPLICATE, new cv.Scalar());
+
+    mapX.delete();
+    mapY.delete();
+    return dst;
 }
