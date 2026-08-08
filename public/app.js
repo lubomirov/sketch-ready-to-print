@@ -1,11 +1,15 @@
 import { findCorners, findCurvedEdges, rectifyCurvedEdges, transformPerspective } from './geometry.js';
-import { normalizeBrightness } from './filters.js';
-import { getMousePosition, renderCornersOverlay, renderCurvedEdgesOverlay, renderBrightnessOverlay } from './ui.js';
+import { buildSheetMask, normalizeBrightness } from './filters.js';
+import { getMousePosition, renderCornersOverlay, renderCurvedEdgesOverlay, renderMaskOverlay } from './ui.js';
 
 let currentMat = null;
 let corners = [];
 let edgePoints = [];
 let dragIdx = -1;
+let sheetMask = null;
+let maskPainting = false;
+let maskPaintMode = 'add';
+let lastMaskPoint = null;
 let originalFileName = 'image';
 let outputImageDataUrl = '';
 
@@ -14,6 +18,7 @@ const state = {
     cornersChecked: false,
     cornersFound: false,
     curvesReady: false,
+    maskEditing: false,
     busy: false
 };
 
@@ -28,22 +33,25 @@ const geometryControls = document.getElementById('geometryControls');
 const findCurvedEdgesBtn = document.getElementById('findCurvedEdgesBtn');
 const curvedInfo = document.getElementById('curvedInfo');
 const fixCurvedEdgesBtn = document.getElementById('fixCurvedEdgesBtn');
-const analyzeBrightnessBtn = document.getElementById('analyzeBrightnessBtn');
+const detectSheetMaskBtn = document.getElementById('detectSheetMaskBtn');
 const normalizeBrightnessBtn = document.getElementById('normalizeBrightnessBtn');
 const saveBtn = document.getElementById('saveBtn');
+const editMask = document.getElementById('editMask');
+const maskAddBtn = document.getElementById('maskAddBtn');
+const maskEraseBtn = document.getElementById('maskEraseBtn');
+const maskBrushSize = document.getElementById('maskBrushSize');
+const maskBrushSizeValue = document.getElementById('maskBrushSizeValue');
 const inputFilename = document.getElementById('input_filename');
 const processStatus = document.getElementById('processStatus');
 
 const marginInput = document.getElementById('marginInput');
 const marginValue = document.getElementById('marginValue');
 
-// Константы выравнивания освещения (вместо UI-контролов)
-const BRIGHTNESS_CONTRAST = 1.1;
-const BRIGHTNESS_OFFSET = -10;
-
 // Синхронизация ползунков полей
 marginInput.addEventListener('input', (e) => marginValue.value = e.target.value);
 marginValue.addEventListener('input', (e) => marginInput.value = e.target.value);
+maskBrushSize.addEventListener('input', (e) => maskBrushSizeValue.value = e.target.value);
+maskBrushSizeValue.addEventListener('input', (e) => maskBrushSize.value = e.target.value);
 
 function setInactive(element, inactive) {
     if (!element) return;
@@ -61,9 +69,16 @@ function syncUi() {
     setInactive(curvedInfo, !state.curvesReady);
     setInactive(fixCurvedEdgesBtn, !state.imageLoaded || !state.curvesReady || state.busy);
 
-    setInactive(analyzeBrightnessBtn, !state.imageLoaded || state.busy);
+    setInactive(detectSheetMaskBtn, !state.imageLoaded || state.busy);
     setInactive(normalizeBrightnessBtn, !state.imageLoaded || state.busy);
+    setInactive(editMask, !state.maskEditing);
     setInactive(saveBtn, !state.imageLoaded || !outputImageDataUrl || state.busy);
+
+    const maskControlsDisabled = !state.maskEditing || state.busy;
+    if (maskAddBtn) maskAddBtn.disabled = maskControlsDisabled;
+    if (maskEraseBtn) maskEraseBtn.disabled = maskControlsDisabled;
+    if (maskBrushSize) maskBrushSize.disabled = maskControlsDisabled;
+    if (maskBrushSizeValue) maskBrushSizeValue.disabled = maskControlsDisabled;
 }
 
 function resetGeometryState() {
@@ -73,6 +88,67 @@ function resetGeometryState() {
     state.cornersChecked = false;
     state.cornersFound = false;
     state.curvesReady = false;
+}
+
+function setMaskPaintMode(mode) {
+    maskPaintMode = mode === 'erase' ? 'erase' : 'add';
+    maskAddBtn.classList.toggle('active', maskPaintMode === 'add');
+    maskEraseBtn.classList.toggle('active', maskPaintMode === 'erase');
+}
+
+function clearMaskMat() {
+    if (sheetMask) {
+        sheetMask.delete();
+        sheetMask = null;
+    }
+}
+
+function clearBrightnessEditState() {
+    clearMaskMat();
+    state.maskEditing = false;
+    maskPainting = false;
+    lastMaskPoint = null;
+    setMaskPaintMode('add');
+}
+
+function renderMaskEditView() {
+    if (!currentMat) return;
+    if (state.maskEditing && sheetMask) {
+        renderMaskOverlay(canvas, ctxInput, currentMat, sheetMask, 0.5);
+        return;
+    }
+    renderRawCanvas();
+}
+
+function getBrushRadius() {
+    const value = parseInt(maskBrushSize.value, 10) || 14;
+    return Math.max(1, value);
+}
+
+function paintMaskStroke(from, to) {
+    if (!sheetMask) return;
+    const radius = getBrushRadius();
+    const maskValue = maskPaintMode === 'erase' ? 0 : 255;
+    const color = new cv.Scalar(maskValue);
+
+    cv.line(
+        sheetMask,
+        new cv.Point(Math.round(from.x), Math.round(from.y)),
+        new cv.Point(Math.round(to.x), Math.round(to.y)),
+        color,
+        radius * 2,
+        cv.LINE_AA,
+        0
+    );
+    cv.circle(
+        sheetMask,
+        new cv.Point(Math.round(to.x), Math.round(to.y)),
+        radius,
+        color,
+        -1,
+        cv.LINE_AA,
+        0
+    );
 }
 
 function renderRawCanvas() {
@@ -164,6 +240,7 @@ fileInput.addEventListener('change', (e) => {
 
             state.imageLoaded = true;
             resetGeometryState();
+            clearBrightnessEditState();
             renderRawCanvas();
             updateSaveData();
         };
@@ -174,6 +251,7 @@ fileInput.addEventListener('change', (e) => {
 
 findCornersBtn.addEventListener('click', () => {
     if (!currentMat) return;
+    clearBrightnessEditState();
 
     runStep('Поиск углов...', () => {
         const result = findCorners(currentMat, currentMat.cols, currentMat.rows);
@@ -194,6 +272,7 @@ findCornersBtn.addEventListener('click', () => {
 // Клик по кнопке "Выпрямить перспективу" с асинхронным статус-баром
 fixGeometryBtn.addEventListener('click', () => {
     if (!currentMat || !state.cornersFound) return;
+    clearBrightnessEditState();
 
     runStep('Выпрямление геометрии...', () => {
         const margin = parseInt(marginInput.value, 10) || 0;
@@ -207,6 +286,7 @@ fixGeometryBtn.addEventListener('click', () => {
 
 findCurvedEdgesBtn.addEventListener('click', () => {
     if (!currentMat) return;
+    clearBrightnessEditState();
 
     runStep('Поиск искривлений...', () => {
         const result = findCurvedEdges(currentMat, currentMat.cols, currentMat.rows);
@@ -222,6 +302,7 @@ findCurvedEdgesBtn.addEventListener('click', () => {
 
 fixCurvedEdgesBtn.addEventListener('click', () => {
     if (!currentMat || !state.curvesReady) return;
+    clearBrightnessEditState();
 
     runStep('Исправление кривых граней...', () => {
         const correctedMat = rectifyCurvedEdges(currentMat, corners, edgePoints);
@@ -232,12 +313,16 @@ fixCurvedEdgesBtn.addEventListener('click', () => {
     });
 });
 
-// Клик по кнопке "Анализировать яркость"
-analyzeBrightnessBtn.addEventListener('click', () => {
+// Клик по кнопке "Определить маску фона"
+detectSheetMaskBtn.addEventListener('click', () => {
     if (!currentMat) return;
 
-    runStep('Анализ яркости...', () => {
-        renderBrightnessOverlay(canvas, ctxInput, currentMat, originalFileName);
+    runStep('Определение маски фона...', () => {
+        clearMaskMat();
+        sheetMask = buildSheetMask(currentMat);
+        state.maskEditing = true;
+        setMaskPaintMode('add');
+        renderMaskEditView();
     });
 });
 
@@ -246,16 +331,38 @@ normalizeBrightnessBtn.addEventListener('click', () => {
     if (!currentMat) return;
 
     runStep('Выравнивание яркости...', () => {
-        const finalMat = normalizeBrightness(currentMat, BRIGHTNESS_CONTRAST, BRIGHTNESS_OFFSET);
+        const finalMat = normalizeBrightness(currentMat, sheetMask)
         setCurrentMat(finalMat);
         resetGeometryState();
+        clearBrightnessEditState();
         renderRawCanvas();
         updateSaveData();
     });
 });
 
+maskAddBtn.addEventListener('click', () => {
+    if (!state.maskEditing) return;
+    setMaskPaintMode('add');
+});
+
+maskEraseBtn.addEventListener('click', () => {
+    if (!state.maskEditing) return;
+    setMaskPaintMode('erase');
+});
+
 // Интерактивное управление маркерами
 canvas.addEventListener('mousedown', (e) => {
+    if (!currentMat || state.busy) return;
+
+    if (state.maskEditing && sheetMask) {
+        const pos = getMousePosition(canvas, e);
+        maskPainting = true;
+        lastMaskPoint = pos;
+        paintMaskStroke(pos, pos);
+        renderMaskEditView();
+        return;
+    }
+
     if (!currentMat || !state.cornersFound || state.busy) return;
     const pos = getMousePosition(canvas, e);
     const clickRadius = Math.max(20, canvas.width / 40);
@@ -263,6 +370,16 @@ canvas.addEventListener('mousedown', (e) => {
 });
 
 canvas.addEventListener('mousemove', (e) => {
+    if (!currentMat || state.busy) return;
+
+    if (state.maskEditing && sheetMask && maskPainting) {
+        const pos = getMousePosition(canvas, e);
+        paintMaskStroke(lastMaskPoint || pos, pos);
+        lastMaskPoint = pos;
+        renderMaskEditView();
+        return;
+    }
+
     if (dragIdx === -1 || !currentMat || !state.cornersFound || state.busy) return;
     const pos = getMousePosition(canvas, e);
     corners[dragIdx].x = pos.x;
@@ -273,6 +390,10 @@ canvas.addEventListener('mousemove', (e) => {
     syncUi();
 });
 
-window.addEventListener('mouseup', () => dragIdx = -1);
+window.addEventListener('mouseup', () => {
+    dragIdx = -1;
+    maskPainting = false;
+    lastMaskPoint = null;
+});
 
 syncUi();

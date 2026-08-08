@@ -33,7 +33,9 @@ export function renderCurvedEdgesOverlay(canvas, ctx, srcMat, corners, edgePoint
         side.forEach((p, k) => {
             // Проекция p на прямую a→b (ближайшая точка на ребре)
             const dx = b.x - a.x, dy = b.y - a.y;
-            const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy);
+            const denom = dx * dx + dy * dy || 1;
+            const rawT = ((p.x - a.x) * dx + (p.y - a.y) * dy) / denom;
+            const t = Math.max(0, Math.min(1, rawT));
             const ideal = { x: a.x + t * dx, y: a.y + t * dy };
 
             // Линия смещения от фактической к идеальной
@@ -57,64 +59,31 @@ export function getMousePosition(canvas, event) {
     };
 }
 
-function toStem(fileName) {
-    return (fileName || 'image').replace(/\.[^.]+$/, '') || 'image';
-}
+// Отрисовка редактируемой маски поверх исходного изображения полупрозрачным зеленым цветом.
+export function renderMaskOverlay(canvas, ctx, srcMat, maskMat, alpha = 0.5) {
+    if (!srcMat || !maskMat) return;
 
-function downloadMatAsPng(mat, fileName) {
-    const exportCanvas = document.createElement('canvas');
-    exportCanvas.width = mat.cols;
-    exportCanvas.height = mat.rows;
-    cv.imshow(exportCanvas, mat);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    cv.imshow(canvas.id, srcMat);
 
-    const anchor = document.createElement('a');
-    anchor.href = exportCanvas.toDataURL('image/png');
-    anchor.download = fileName;
-    anchor.click();
-}
+    const maskData = maskMat.data;
+    const overlayCanvas = document.createElement('canvas');
+    overlayCanvas.width = maskMat.cols;
+    overlayCanvas.height = maskMat.rows;
+    const overlayCtx = overlayCanvas.getContext('2d');
+    const overlay = overlayCtx.createImageData(maskMat.cols, maskMat.rows);
+    const rgba = overlay.data;
+    const overlayAlpha = Math.max(0, Math.min(255, Math.round(alpha * 255)));
 
-// Отрисовка размытой карты яркости поверх текущего кадра
-export function renderBrightnessOverlay(canvas, ctx, srcMat, sourceFileName = 'image') {
-    if (!srcMat) return;
-
-    const gray = new cv.Mat();
-    const blurred = new cv.Mat();
-    const normalized = new cv.Mat();
-    const heatmap = new cv.Mat();
-    const heatmapRgba = new cv.Mat();
-    const blended = new cv.Mat();
-
-    try {
-        cv.cvtColor(srcMat, gray, cv.COLOR_RGBA2GRAY, 0);
-
-        // Чем крупнее холст, тем сильнее сглаживаем карту освещения.
-        const minSide = Math.min(srcMat.cols, srcMat.rows);
-        const kernelBase = Math.max(31, Math.floor(minSide / 12));
-        const kernelSize = kernelBase % 2 === 0 ? kernelBase + 1 : kernelBase;
-        cv.GaussianBlur(gray, blurred, new cv.Size(kernelSize, kernelSize), 0);
-
-        cv.normalize(blurred, normalized, 0, 255, cv.NORM_MINMAX);
-        cv.applyColorMap(normalized, heatmap, cv.COLORMAP_TURBO);
-        cv.cvtColor(heatmap, heatmapRgba, cv.COLOR_BGR2RGBA, 0);
-
-        // Накладываем карту поверх кадра, чтобы видеть локальные зоны света/тени.
-        cv.addWeighted(srcMat, 0.55, heatmapRgba, 0.45, 0, blended);
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        cv.imshow(canvas.id, blended);
-
-        const stem = toStem(sourceFileName);
-        downloadMatAsPng(gray, `${stem}_brightness_01_gray.png`);
-        downloadMatAsPng(blurred, `${stem}_brightness_02_blurred.png`);
-        downloadMatAsPng(normalized, `${stem}_brightness_03_normalized.png`);
-        downloadMatAsPng(heatmap, `${stem}_brightness_04_heatmap.png`);
-        downloadMatAsPng(heatmapRgba, `${stem}_brightness_05_heatmap_rgba.png`);
-        downloadMatAsPng(blended, `${stem}_brightness_06_blended_overlay.png`);
-    } finally {
-        gray.delete();
-        blurred.delete();
-        normalized.delete();
-        heatmap.delete();
-        heatmapRgba.delete();
-        blended.delete();
+    for (let i = 0; i < maskData.length; i++) {
+        if (maskData[i] === 0) continue;
+        const j = i * 4;
+        rgba[j] = 0;
+        rgba[j + 1] = 255;
+        rgba[j + 2] = 80;
+        rgba[j + 3] = overlayAlpha;
     }
+
+    overlayCtx.putImageData(overlay, 0, 0);
+    ctx.drawImage(overlayCanvas, 0, 0);
 }

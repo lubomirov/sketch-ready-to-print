@@ -16,6 +16,10 @@
         .btn-file:has(input:disabled) { opacity: 0.5; cursor: default; pointer-events: none; }
         #opencvStatus { color: #AAA; }
         #opencvStatus.ready { color: #388e3c; }
+        .mask-edit-title { font-weight: 600; margin-bottom: 6px; }
+        .mask-edit-row { display: flex; justify-content: center; gap: 8px; align-items: center; flex-wrap: wrap; margin: 12px 0; }
+        .mask-edit-row button.active { background: #d7f4dd; border-color: #50a665; }
+        .mask-edit-row input[type="number"] { width: 55px; }
     </style>
     <script async src="opencv.js" type="text/javascript"></script>
     <script type="module" src="app.js"></script>
@@ -47,7 +51,19 @@
             <button id="fixCurvedEdgesBtn" disabled>Исправить кривые грани</button>
         </div>
         <div class="step">
-            <button id="analyzeBrightnessBtn" disabled>Анализировать яркость</button>
+            <button id="detectSheetMaskBtn" disabled>Определить фон</button>
+            <div id="editMask" class="step-control inactive">
+                Все зеленое надо стереть, чтобы выявить перепады освещения
+                <div class="mask-edit-row">
+                    <button id="maskAddBtn" type="button">Add Green</button>
+                    <button id="maskEraseBtn" type="button">Erase</button>
+                </div>
+                <div class="mask-edit-row">
+                    <label for="maskBrushSize">Size:</label>
+                    <input type="range" id="maskBrushSize" min="10" max="50" value="20" step="1">
+                    <input type="number" id="maskBrushSizeValue" min="10" max="50" value="20">
+                </div>
+            </div>
             <button id="normalizeBrightnessBtn" disabled>Нормализовать яркость</button>
         </div>
         <div class="step">

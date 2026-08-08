@@ -21,40 +21,84 @@ export function sortPoints(pts) {
     ];
 }
 
-// Семплирование N точек вдоль каждого ребра из полного контура
+// Семплирование N точек вдоль каждого ребра из полного контура.
+// Устойчиво к неоднозначному порядку углов и индексов в contour.
 function sampleEdgePoints(contourPts, corners, n) {
-    const len = contourPts.length;
-    const indices = corners.map(c => {
-        let minDist = Infinity, minIdx = 0;
-        for (let i = 0; i < len; i++) {
-            const d = Math.hypot(contourPts[i].x - c.x, contourPts[i].y - c.y);
-            if (d < minDist) { minDist = d; minIdx = i; }
-        }
-        return minIdx;
+    const sideDefs = corners.map((start, sideIdx) => {
+        const end = corners[(sideIdx + 1) % 4];
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        const edgeLen = Math.hypot(dx, dy) || 1;
+        const denom = dx * dx + dy * dy || 1;
+        return { start, end, dx, dy, edgeLen, denom };
     });
 
-    return indices.map((ia, s) => {
-        const ib = indices[(s + 1) % 4];
-        const fwd = [];
-        let i = ia;
-        while (i !== ib) { fwd.push(contourPts[i]); i = (i + 1) % len; if (fwd.length > len) break; }
-        fwd.push(contourPts[ib]);
+    const sideBins = [[], [], [], []];
 
-        // Выбираем более короткий путь по контуру
-        let segment = fwd;
-        if (fwd.length > len / 2 + 1) {
-            const bwd = [];
-            let j = ia;
-            while (j !== ib) { bwd.push(contourPts[j]); j = (j - 1 + len) % len; if (bwd.length > len) break; }
-            bwd.push(contourPts[ib]);
-            segment = bwd;
-        }
+    contourPts.forEach((point) => {
+        let bestSideIdx = 0;
+        let bestEntry = null;
+        let bestScore = Infinity;
 
+        sideDefs.forEach((side, sideIdx) => {
+            const rawT = ((point.x - side.start.x) * side.dx + (point.y - side.start.y) * side.dy) / side.denom;
+            const clampedT = Math.max(0, Math.min(1, rawT));
+            const projX = side.start.x + clampedT * side.dx;
+            const projY = side.start.y + clampedT * side.dy;
+            const perpDist = Math.hypot(point.x - projX, point.y - projY);
+
+            const outPenalty = rawT < 0
+                ? -rawT * side.edgeLen
+                : rawT > 1
+                    ? (rawT - 1) * side.edgeLen
+                    : 0;
+            const score = perpDist + outPenalty * 2;
+
+            if (score < bestScore) {
+                bestScore = score;
+                bestSideIdx = sideIdx;
+                bestEntry = { point, rawT, clampedT, perpDist };
+            }
+        });
+
+        sideBins[bestSideIdx].push(bestEntry);
+    });
+
+    return sideDefs.map((side, sideIdx) => {
+        const candidates = sideBins[sideIdx]
+            .filter((entry) => entry.rawT >= -0.15 && entry.rawT <= 1.15)
+            .sort((a, b) => a.clampedT - b.clampedT);
+
+        const pool = candidates.length > 0 ? candidates : sideBins[sideIdx];
+        const used = new Set();
         const pts = [];
+
         for (let k = 1; k <= n; k++) {
-            const t = k / (n + 1);
-            pts.push(segment[Math.round(t * (segment.length - 1))]);
+            const targetT = k / (n + 1);
+            let bestIdx = -1;
+            let bestScore = Infinity;
+
+            pool.forEach((entry, idx) => {
+                if (used.has(idx)) return;
+                const alongDist = Math.abs(entry.clampedT - targetT) * side.edgeLen;
+                const score = alongDist * 1.3 + entry.perpDist;
+                if (score < bestScore) {
+                    bestScore = score;
+                    bestIdx = idx;
+                }
+            });
+
+            if (bestIdx >= 0) {
+                used.add(bestIdx);
+                pts.push(pool[bestIdx].point);
+            } else {
+                pts.push({
+                    x: side.start.x + targetT * side.dx,
+                    y: side.start.y + targetT * side.dy
+                });
+            }
         }
+
         return pts;
     });
 }
@@ -179,6 +223,7 @@ function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
 }
 
+// Находит ближайшую точку на отрезке start->end для заданной point.
 function projectPointToSegment(point, start, end) {
     const dx = end.x - start.x;
     const dy = end.y - start.y;
@@ -187,6 +232,7 @@ function projectPointToSegment(point, start, end) {
     return { x: start.x + t * dx, y: start.y + t * dy };
 }
 
+// Формирует пары управляющих точек: реальная кривая грань -> идеальная прямая грань.
 function buildCurveControlPairs(corners, edgePoints) {
     const pairs = [];
 
@@ -209,7 +255,9 @@ function buildCurveControlPairs(corners, edgePoints) {
     return pairs;
 }
 
-function buildInverseWarpNodes(width, height, controlPairs, cols, rows) {
+// Строит узлы сетки деформации: для каждой вершины сетки вычисляет смещение
+// к исходной координате по взвешенному влиянию управляющих пар.
+function buildWarpNodes(width, height, controlPairs, cols, rows) {
     const nodes = [];
 
     for (let row = 0; row <= rows; row++) {
@@ -254,11 +302,12 @@ function buildInverseWarpNodes(width, height, controlPairs, cols, rows) {
     return nodes;
 }
 
+// Применяет выпрямление кривых граней через обратный remap по узлам сетки.
 export function rectifyCurvedEdges(src, corners, edgePoints, cols = CURVE_GRID_COLS, rows = CURVE_GRID_ROWS) {
     const controlPairs = buildCurveControlPairs(corners, edgePoints);
     if (controlPairs.length === 0) return src.clone();
 
-    const inverseNodes = buildInverseWarpNodes(src.cols, src.rows, controlPairs, cols, rows);
+    const inverseNodes = buildWarpNodes(src.cols, src.rows, controlPairs, cols, rows);
     const mapX = new cv.Mat(src.rows, src.cols, cv.CV_32FC1);
     const mapY = new cv.Mat(src.rows, src.cols, cv.CV_32FC1);
 
