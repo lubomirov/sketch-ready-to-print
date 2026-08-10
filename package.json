@@ -1,7 +1,7 @@
 {
-  "name": "portfolio-post-process",
+  "name": "sketch-clean-to-print",
   "version": "1.0.0",
-  "description": "",
+  "description": "Clean sketch photos to look like scans and prepare them for printing.",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
