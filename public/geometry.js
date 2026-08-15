@@ -117,8 +117,11 @@ function detectSheetGeometry(src, imgWidth, imgHeight) {
     
     // Порог Оцу идеально отделяет белый лист от черного/темного фона
     cv.threshold(gray, thresh, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
+
+    // Ищем все внешние контуры в thresh. Их может быть 700+ с площадью от 0 до 20М
     cv.findContours(thresh, someContours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
+    // Находим самый большой контур по площади, который будет кандидатом на лист
     let maxArea = 0;
     let maxContourIdx = -1;
     for (let i = 0; i < someContours.size(); ++i) {
@@ -129,28 +132,26 @@ function detectSheetGeometry(src, imgWidth, imgHeight) {
         }
     }
 
-    if (maxContourIdx !== -1) {
-        let contour = someContours.get(maxContourIdx);
-        let peri = cv.arcLength(contour, true);
-        let approx = new cv.Mat();
-        
-        cv.approxPolyDP(contour, approx, 0.02 * peri, true);
+    // Для самого большого контура уменьшаем количество точек через апроксимацию полилинии
+    let contour = someContours.get(maxContourIdx);
+    let perimeter = cv.arcLength(contour, true);
+    let simplified = new cv.Mat();
+    cv.approxPolyDP(contour, simplified, 0.02 * perimeter, true);
 
-        if (approx.rows === 4) {
-            let pts = [];
-            for (let i = 0; i < 4; i++) {
-                pts.push({ x: approx.data32S[i * 2], y: approx.data32S[i * 2 + 1] });
-            }
-            corners = sortPoints(pts);
-            found = true;
-
-            const contourPts = [];
-            for (let i = 0; i < contour.rows; i++)
-                contourPts.push({ x: contour.data32S[i * 2], y: contour.data32S[i * 2 + 1] });
-            edgePoints = sampleEdgePoints(contourPts, corners, EDGE_SAMPLES);
+    if (simplified.rows === 4) {
+        let pts = [];
+        for (let i = 0; i < 4; i++) {
+            pts.push({ x: simplified.data32S[i * 2], y: simplified.data32S[i * 2 + 1] });
         }
-        approx.delete();
+        corners = sortPoints(pts);
+        found = true;
+
+        const contourPts = [];
+        for (let i = 0; i < contour.rows; i++)
+            contourPts.push({ x: contour.data32S[i * 2], y: contour.data32S[i * 2 + 1] });
+        edgePoints = sampleEdgePoints(contourPts, corners, EDGE_SAMPLES);
     }
+    simplified.delete();
 
     // Если автоматика не сработала — строим рамку по умолчанию с отступами
     if (corners.length !== 4) {

@@ -70,7 +70,7 @@ function syncUi() {
     setInactive(fixCurvedEdgesBtn, !state.imageLoaded || !state.curvesReady || state.busy);
 
     setInactive(detectSheetMaskBtn, !state.imageLoaded || state.busy);
-    setInactive(normalizeBrightnessBtn, !state.imageLoaded || state.busy);
+    setInactive(normalizeBrightnessBtn, !state.imageLoaded || !sheetMask || state.busy);
     setInactive(editMask, !state.maskEditing);
     setInactive(saveBtn, !state.imageLoaded || !outputImageDataUrl || state.busy);
 
@@ -103,7 +103,7 @@ function clearMaskMat() {
     }
 }
 
-function clearBrightnessEditState() {
+function cancelBrightnessEditState() {
     clearMaskMat();
     state.maskEditing = false;
     maskPainting = false;
@@ -240,7 +240,7 @@ fileInput.addEventListener('change', (e) => {
 
             state.imageLoaded = true;
             resetGeometryState();
-            clearBrightnessEditState();
+            cancelBrightnessEditState();
             renderRawCanvas();
             updateSaveData();
         };
@@ -251,7 +251,7 @@ fileInput.addEventListener('change', (e) => {
 
 findCornersBtn.addEventListener('click', () => {
     if (!currentMat) return;
-    clearBrightnessEditState();
+    cancelBrightnessEditState();
 
     runStep('Поиск углов...', () => {
         const result = findCorners(currentMat, currentMat.cols, currentMat.rows);
@@ -272,7 +272,7 @@ findCornersBtn.addEventListener('click', () => {
 // Клик по кнопке "Выпрямить перспективу" с асинхронным статус-баром
 fixGeometryBtn.addEventListener('click', () => {
     if (!currentMat || !state.cornersFound) return;
-    clearBrightnessEditState();
+    cancelBrightnessEditState();
 
     runStep('Выпрямление геометрии...', () => {
         const margin = parseInt(marginInput.value, 10) || 0;
@@ -286,7 +286,7 @@ fixGeometryBtn.addEventListener('click', () => {
 
 findCurvedEdgesBtn.addEventListener('click', () => {
     if (!currentMat) return;
-    clearBrightnessEditState();
+    cancelBrightnessEditState();
 
     runStep('Поиск искривлений...', () => {
         const result = findCurvedEdges(currentMat, currentMat.cols, currentMat.rows);
@@ -302,7 +302,7 @@ findCurvedEdgesBtn.addEventListener('click', () => {
 
 fixCurvedEdgesBtn.addEventListener('click', () => {
     if (!currentMat || !state.curvesReady) return;
-    clearBrightnessEditState();
+    cancelBrightnessEditState();
 
     runStep('Исправление кривых граней...', () => {
         const correctedMat = rectifyCurvedEdges(currentMat, corners, edgePoints);
@@ -328,13 +328,13 @@ detectSheetMaskBtn.addEventListener('click', () => {
 
 // Клик по кнопке "Нормализовать яркость"
 normalizeBrightnessBtn.addEventListener('click', () => {
-    if (!currentMat) return;
+    if (!currentMat || !sheetMask) return;
 
     runStep('Выравнивание яркости...', () => {
         const finalMat = normalizeBrightness(currentMat, sheetMask)
         setCurrentMat(finalMat);
         resetGeometryState();
-        clearBrightnessEditState();
+        cancelBrightnessEditState();
         renderRawCanvas();
         updateSaveData();
     });

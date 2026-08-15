@@ -1,5 +1,5 @@
 {
-  "name": "sketch-clean-to-print",
+  "name": "sketch-ready-to-print",
   "version": "1.0.0",
   "description": "Clean sketch photos to look like scans and prepare them for printing.",
   "main": "index.js",
