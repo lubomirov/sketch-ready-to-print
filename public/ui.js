@@ -87,3 +87,25 @@ export function renderMaskOverlay(canvas, ctx, srcMat, maskMat, alpha = 0.5) {
     overlayCtx.putImageData(overlay, 0, 0);
     ctx.drawImage(overlayCanvas, 0, 0);
 }
+
+export function initTabs() {
+    const tabButtons = Array.from(document.querySelectorAll('.tab-btn'));
+    const tabPanes = Array.from(document.querySelectorAll('.tab-pane'));
+    if (tabButtons.length === 0 || tabPanes.length === 0) return;
+
+    function activateTab(tabId) {
+        tabButtons.forEach((btn) => {
+            const isActive = btn.dataset.tab === tabId;
+            btn.classList.toggle('active', isActive);
+            btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        });
+
+        tabPanes.forEach((pane) => {
+            pane.classList.toggle('active', pane.id === tabId);
+        });
+    }
+
+    tabButtons.forEach((btn) => {
+        btn.addEventListener('click', () => activateTab(btn.dataset.tab));
+    });
+}

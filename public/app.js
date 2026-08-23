@@ -1,6 +1,6 @@
 import { findCorners, findCurvedEdges, rectifyCurvedEdges, transformPerspective } from './geometry.js';
 import { buildSheetMask, normalizeBrightness } from './filters.js';
-import { getMousePosition, renderCornersOverlay, renderCurvedEdgesOverlay, renderMaskOverlay } from './ui.js';
+import { getMousePosition, initTabs, renderCornersOverlay, renderCurvedEdgesOverlay, renderMaskOverlay } from './ui.js';
 
 let currentMat = null;
 let corners = [];
@@ -397,3 +397,4 @@ window.addEventListener('mouseup', () => {
 });
 
 syncUi();
+initTabs();
