@@ -131,6 +131,29 @@
         .mask-edit-row button.active { background: #d7f4dd; border-color: #50a665; }
         .mask-edit-row input[type="number"] { width: 55px; }
 
+        .lightmap-preview {
+            width: 100%;
+            height: 180px;
+            max-height: 180px;
+            border: 1px solid #d7d7d7;
+            background: #f8f8f8;
+            border-radius: 3px;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .lightmap-preview canvas {
+            border: none;
+            max-width: 100%;
+            max-height: 100%;
+            width: auto;
+            height: auto;
+            background: #fff;
+            display: block;
+        }
+
         .canvas-area {
             flex: 1 1 auto;
             height: 100vh;
@@ -245,6 +268,13 @@
                             <input type="number" id="maskBrushSizeValue" min="10" max="50" value="20">
                         </div>
                     </div>
+                    <button id="recalcLightMapBtn" disabled>Пересчитать карту освещенности</button>
+                    <div id="lightMapZone" class="step-control inactive">
+                        <div style="font-weight: 600; margin-bottom: 6px;">Normalized Light Map</div>
+                        <div class="lightmap-preview">
+                            <canvas id="lightMapCanvas" width="1" height="1"></canvas>
+                        </div>
+                    </div>
                     <button id="normalizeBrightnessBtn" disabled>Нормализовать яркость</button>
                 </div>
             </div>
@@ -252,9 +282,10 @@
             <div class="tab-pane" id="tab-5" role="tabpanel">
                 <div class="step">
                     <button id="saveBtn" disabled>Сохранить результат</button>
-                    <div id="processStatus" class="step-control" style="color: #0288d1;"></div>
                 </div>
             </div>
+
+            <div id="processStatus" class="step-control" style="color: #0288d1;"></div>
         </div>
     </div>
 

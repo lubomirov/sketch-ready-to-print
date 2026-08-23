@@ -1,5 +1,5 @@
 import { findCorners, findCurvedEdges, rectifyCurvedEdges, transformPerspective } from './geometry.js';
-import { buildSheetMask, normalizeBrightness } from './filters.js';
+import { applyBrightnessWithLightMap, buildNormalizedLightMap, buildSheetMask } from './filters.js';
 import { getMousePosition, initTabs, renderCornersOverlay, renderCurvedEdgesOverlay, renderMaskOverlay } from './ui.js';
 
 let currentMat = null;
@@ -7,6 +7,8 @@ let corners = [];
 let edgePoints = [];
 let dragIdx = -1;
 let sheetMask = null;
+let lightMap = null;
+let normalizedLightMap = null;
 let maskPainting = false;
 let maskPaintMode = 'add';
 let lastMaskPoint = null;
@@ -34,6 +36,7 @@ const findCurvedEdgesBtn = document.getElementById('findCurvedEdgesBtn');
 const curvedInfo = document.getElementById('curvedInfo');
 const fixCurvedEdgesBtn = document.getElementById('fixCurvedEdgesBtn');
 const detectSheetMaskBtn = document.getElementById('detectSheetMaskBtn');
+const recalcLightMapBtn = document.getElementById('recalcLightMapBtn');
 const normalizeBrightnessBtn = document.getElementById('normalizeBrightnessBtn');
 const saveBtn = document.getElementById('saveBtn');
 const editMask = document.getElementById('editMask');
@@ -41,6 +44,8 @@ const maskAddBtn = document.getElementById('maskAddBtn');
 const maskEraseBtn = document.getElementById('maskEraseBtn');
 const maskBrushSize = document.getElementById('maskBrushSize');
 const maskBrushSizeValue = document.getElementById('maskBrushSizeValue');
+const lightMapZone = document.getElementById('lightMapZone');
+const lightMapCanvas = document.getElementById('lightMapCanvas');
 const inputFilename = document.getElementById('input_filename');
 const processStatus = document.getElementById('processStatus');
 
@@ -70,8 +75,10 @@ function syncUi() {
     setInactive(fixCurvedEdgesBtn, !state.imageLoaded || !state.curvesReady || state.busy);
 
     setInactive(detectSheetMaskBtn, !state.imageLoaded || state.busy);
-    setInactive(normalizeBrightnessBtn, !state.imageLoaded || !sheetMask || state.busy);
+    setInactive(recalcLightMapBtn, !state.imageLoaded || !sheetMask || !state.maskEditing || state.busy);
+    setInactive(normalizeBrightnessBtn, !state.imageLoaded || !lightMap || state.busy);
     setInactive(editMask, !state.maskEditing);
+    setInactive(lightMapZone, !state.maskEditing);
     setInactive(saveBtn, !state.imageLoaded || !outputImageDataUrl || state.busy);
 
     const maskControlsDisabled = !state.maskEditing || state.busy;
@@ -103,20 +110,54 @@ function clearMaskMat() {
     }
 }
 
+function clearLightMapMat() {
+    if (lightMap) {
+        lightMap.delete();
+        lightMap = null;
+    }
+    if (normalizedLightMap) {
+        normalizedLightMap.delete();
+        normalizedLightMap = null;
+    }
+}
+
+function clearLightMapView() {
+    if (!lightMapCanvas) return;
+    lightMapCanvas.width = 1;
+    lightMapCanvas.height = 1;
+    const ctx = lightMapCanvas.getContext('2d');
+    if (ctx) ctx.clearRect(0, 0, 1, 1);
+}
+
+function renderLightMapView() {
+    if (!lightMapCanvas || !normalizedLightMap) {
+        clearLightMapView();
+        return;
+    }
+
+    lightMapCanvas.width = normalizedLightMap.cols;
+    lightMapCanvas.height = normalizedLightMap.rows;
+    cv.imshow(lightMapCanvas, normalizedLightMap);
+}
+
 function cancelBrightnessEditState() {
     clearMaskMat();
+    clearLightMapMat();
     state.maskEditing = false;
     maskPainting = false;
     lastMaskPoint = null;
     setMaskPaintMode('add');
+    clearLightMapView();
 }
 
 function renderMaskEditView() {
     if (!currentMat) return;
     if (state.maskEditing && sheetMask) {
         renderMaskOverlay(canvas, ctxInput, currentMat, sheetMask, 0.5);
+        renderLightMapView();
         return;
     }
+    clearLightMapView();
     renderRawCanvas();
 }
 
@@ -319,6 +360,7 @@ detectSheetMaskBtn.addEventListener('click', () => {
 
     runStep('Определение маски фона...', () => {
         clearMaskMat();
+        clearLightMapMat();
         sheetMask = buildSheetMask(currentMat);
         state.maskEditing = true;
         setMaskPaintMode('add');
@@ -326,12 +368,24 @@ detectSheetMaskBtn.addEventListener('click', () => {
     });
 });
 
-// Клик по кнопке "Нормализовать яркость"
-normalizeBrightnessBtn.addEventListener('click', () => {
+recalcLightMapBtn.addEventListener('click', () => {
     if (!currentMat || !sheetMask) return;
 
+    runStep('Пересчет карты освещенности...', () => {
+        clearLightMapMat();
+        const lightMaps = buildNormalizedLightMap(currentMat, sheetMask);
+        lightMap = lightMaps.lightMap;
+        normalizedLightMap = lightMaps.normalizedLightMap;
+        renderLightMapView();
+    });
+});
+
+// Клик по кнопке "Нормализовать яркость"
+normalizeBrightnessBtn.addEventListener('click', () => {
+    if (!currentMat || !lightMap) return;
+
     runStep('Выравнивание яркости...', () => {
-        const finalMat = normalizeBrightness(currentMat, sheetMask)
+        const finalMat = applyBrightnessWithLightMap(currentMat, lightMap);
         setCurrentMat(finalMat);
         resetGeometryState();
         cancelBrightnessEditState();
@@ -355,6 +409,11 @@ canvas.addEventListener('mousedown', (e) => {
     if (!currentMat || state.busy) return;
 
     if (state.maskEditing && sheetMask) {
+        if (lightMap || normalizedLightMap) {
+            clearLightMapMat();
+            clearLightMapView();
+            syncUi();
+        }
         const pos = getMousePosition(canvas, e);
         maskPainting = true;
         lastMaskPoint = pos;
