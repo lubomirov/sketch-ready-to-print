@@ -12,6 +12,9 @@ let normalizedLightMap = null;
 let maskPainting = false;
 let maskPaintMode = 'add';
 let lastMaskPoint = null;
+let referencePointEditing = false;
+let referencePoints = [];
+let draggedReferencePointIndex = -1;
 let originalFileName = 'image';
 let outputImageDataUrl = '';
 
@@ -44,6 +47,11 @@ const maskAddBtn = document.getElementById('maskAddBtn');
 const maskEraseBtn = document.getElementById('maskEraseBtn');
 const maskBrushSize = document.getElementById('maskBrushSize');
 const maskBrushSizeValue = document.getElementById('maskBrushSizeValue');
+const addReferencePointBtn = document.getElementById('addReferencePointBtn');
+const referenceRadius = document.getElementById('referenceRadius');
+const referenceRadiusValue = document.getElementById('referenceRadiusValue');
+const referenceStats = document.getElementById('referenceStats');
+const paperColorPicker = document.getElementById('paperColorPicker');
 const lightMapZone = document.getElementById('lightMapZone');
 const lightMapCanvas = document.getElementById('lightMapCanvas');
 const inputFilename = document.getElementById('input_filename');
@@ -57,6 +65,14 @@ marginInput.addEventListener('input', (e) => marginValue.value = e.target.value)
 marginValue.addEventListener('input', (e) => marginInput.value = e.target.value);
 maskBrushSize.addEventListener('input', (e) => maskBrushSizeValue.value = e.target.value);
 maskBrushSizeValue.addEventListener('input', (e) => maskBrushSize.value = e.target.value);
+referenceRadius.addEventListener('input', (e) => referenceRadiusValue.value = e.target.value);
+referenceRadiusValue.addEventListener('input', (e) => referenceRadius.value = e.target.value);
+referenceRadius.addEventListener('input', () => {
+    if (state.maskEditing) renderMaskEditView();
+});
+referenceRadiusValue.addEventListener('input', () => {
+    if (state.maskEditing) renderMaskEditView();
+});
 
 function setInactive(element, inactive) {
     if (!element) return;
@@ -86,6 +102,10 @@ function syncUi() {
     if (maskEraseBtn) maskEraseBtn.disabled = maskControlsDisabled;
     if (maskBrushSize) maskBrushSize.disabled = maskControlsDisabled;
     if (maskBrushSizeValue) maskBrushSizeValue.disabled = maskControlsDisabled;
+    if (addReferencePointBtn) addReferencePointBtn.disabled = maskControlsDisabled;
+    if (referenceRadius) referenceRadius.disabled = maskControlsDisabled;
+    if (referenceRadiusValue) referenceRadiusValue.disabled = maskControlsDisabled;
+    if (paperColorPicker) paperColorPicker.disabled = maskControlsDisabled;
 }
 
 function resetGeometryState() {
@@ -101,6 +121,12 @@ function setMaskPaintMode(mode) {
     maskPaintMode = mode === 'erase' ? 'erase' : 'add';
     maskAddBtn.classList.toggle('active', maskPaintMode === 'add');
     maskEraseBtn.classList.toggle('active', maskPaintMode === 'erase');
+}
+
+function setReferencePointEditing(enabled) {
+    referencePointEditing = enabled;
+    addReferencePointBtn.classList.toggle('reference-active', enabled);
+    addReferencePointBtn.textContent = enabled ? 'Добавление точек: включено' : 'Добавить эталонную точку';
 }
 
 function clearMaskMat() {
@@ -146,6 +172,9 @@ function cancelBrightnessEditState() {
     state.maskEditing = false;
     maskPainting = false;
     lastMaskPoint = null;
+    setReferencePointEditing(false);
+    referencePoints = [];
+    draggedReferencePointIndex = -1;
     setMaskPaintMode('add');
     clearLightMapView();
 }
@@ -154,11 +183,89 @@ function renderMaskEditView() {
     if (!currentMat) return;
     if (state.maskEditing && sheetMask) {
         renderMaskOverlay(canvas, ctxInput, currentMat, sheetMask, 0.5);
+        renderReferencePoints();
+        updateReferenceStats();
         renderLightMapView();
         return;
     }
     clearLightMapView();
     renderRawCanvas();
+}
+
+function getReferenceRadius() {
+    const value = parseInt(referenceRadius.value, 10) || 50;
+    return Math.max(1, value);
+}
+
+function formatRgb(rgb) {
+    return `${rgb[0]}-${rgb[1]}-${rgb[2]}`;
+}
+
+function updateReferenceStats() {
+    if (!referenceStats) return;
+    if (!currentMat || referencePoints.length === 0) {
+        referenceStats.textContent = 'Точек: 0; диапазон: -; среднее: -';
+        return;
+    }
+
+    const radius = getReferenceRadius();
+    const radiusSquared = radius * radius;
+    const minimum = [255, 255, 255];
+    const maximum = [0, 0, 0];
+    const sum = [0, 0, 0];
+    let pixelCount = 0;
+
+    referencePoints.forEach((point) => {
+        const left = Math.max(0, Math.ceil(point.x - radius));
+        const right = Math.min(currentMat.cols - 1, Math.floor(point.x + radius));
+        const top = Math.max(0, Math.ceil(point.y - radius));
+        const bottom = Math.min(currentMat.rows - 1, Math.floor(point.y + radius));
+
+        for (let y = top; y <= bottom; y++) {
+            for (let x = left; x <= right; x++) {
+                const dx = x - point.x;
+                const dy = y - point.y;
+                if (dx * dx + dy * dy > radiusSquared) continue;
+
+                const pixelIndex = (y * currentMat.cols + x) * 4;
+                for (let channel = 0; channel < 3; channel++) {
+                    const value = currentMat.data[pixelIndex + channel];
+                    minimum[channel] = Math.min(minimum[channel], value);
+                    maximum[channel] = Math.max(maximum[channel], value);
+                    sum[channel] += value;
+                }
+                pixelCount++;
+            }
+        }
+    });
+
+    const average = sum.map((value) => Math.round(value / pixelCount));
+    referenceStats.textContent = `Точек: ${referencePoints.length}; диапазон: от ${formatRgb(minimum)} до ${formatRgb(maximum)}; среднее: ${formatRgb(average)}`;
+}
+
+function renderReferencePoints() {
+    const radius = getReferenceRadius();
+    ctxInput.save();
+    ctxInput.lineWidth = Math.max(2, canvas.width / 800);
+    ctxInput.strokeStyle = '#2f76d2';
+    ctxInput.fillStyle = '#2f76d2';
+
+    referencePoints.forEach((point) => {
+        ctxInput.beginPath();
+        ctxInput.arc(point.x, point.y, radius, 0, 2 * Math.PI);
+        ctxInput.stroke();
+        ctxInput.beginPath();
+        ctxInput.arc(point.x, point.y, Math.max(4, radius / 8), 0, 2 * Math.PI);
+        ctxInput.fill();
+    });
+
+    ctxInput.restore();
+}
+
+function moveDraggedReferencePoint(event) {
+    if (!currentMat || state.busy || draggedReferencePointIndex === -1) return;
+    referencePoints[draggedReferencePointIndex] = getMousePosition(canvas, event);
+    renderMaskEditView();
 }
 
 function getBrushRadius() {
@@ -363,6 +470,8 @@ detectSheetMaskBtn.addEventListener('click', () => {
         clearLightMapMat();
         sheetMask = buildSheetMask(currentMat);
         state.maskEditing = true;
+        referencePoints = [];
+        setReferencePointEditing(false);
         setMaskPaintMode('add');
         renderMaskEditView();
     });
@@ -404,17 +513,32 @@ maskEraseBtn.addEventListener('click', () => {
     setMaskPaintMode('erase');
 });
 
+addReferencePointBtn.addEventListener('click', () => {
+    if (!state.maskEditing) return;
+    setReferencePointEditing(!referencePointEditing);
+});
+
 // Интерактивное управление маркерами
 canvas.addEventListener('mousedown', (e) => {
     if (!currentMat || state.busy) return;
 
     if (state.maskEditing && sheetMask) {
+        const pos = getMousePosition(canvas, e);
+        if (referencePointEditing) {
+            const hitRadius = getReferenceRadius();
+            draggedReferencePointIndex = referencePoints.findIndex((point) => Math.hypot(point.x - pos.x, point.y - pos.y) <= hitRadius);
+            if (draggedReferencePointIndex === -1) {
+                referencePoints.push(pos);
+                draggedReferencePointIndex = referencePoints.length - 1;
+            }
+            renderMaskEditView();
+            return;
+        }
         if (lightMap || normalizedLightMap) {
             clearLightMapMat();
             clearLightMapView();
             syncUi();
         }
-        const pos = getMousePosition(canvas, e);
         maskPainting = true;
         lastMaskPoint = pos;
         paintMaskStroke(pos, pos);
@@ -430,6 +554,11 @@ canvas.addEventListener('mousedown', (e) => {
 
 canvas.addEventListener('mousemove', (e) => {
     if (!currentMat || state.busy) return;
+
+    if (state.maskEditing && referencePointEditing && draggedReferencePointIndex !== -1) {
+        moveDraggedReferencePoint(e);
+        return;
+    }
 
     if (state.maskEditing && sheetMask && maskPainting) {
         const pos = getMousePosition(canvas, e);
@@ -449,8 +578,21 @@ canvas.addEventListener('mousemove', (e) => {
     syncUi();
 });
 
+window.addEventListener('mousemove', (e) => {
+    if (!state.maskEditing || !referencePointEditing || draggedReferencePointIndex === -1) return;
+    moveDraggedReferencePoint(e);
+});
+
 window.addEventListener('mouseup', () => {
+    if (draggedReferencePointIndex !== -1) {
+        const point = referencePoints[draggedReferencePointIndex];
+        if (point.x < 0 || point.x >= canvas.width || point.y < 0 || point.y >= canvas.height) {
+            referencePoints.splice(draggedReferencePointIndex, 1);
+            renderMaskEditView();
+        }
+    }
     dragIdx = -1;
+    draggedReferencePointIndex = -1;
     maskPainting = false;
     lastMaskPoint = null;
 });

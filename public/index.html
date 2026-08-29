@@ -129,7 +129,10 @@
         .mask-edit-row { display: flex; justify-content: center; gap: 8px; align-items: center; flex-wrap: wrap; margin: 12px 0; }
         .mask-edit-row button { width: auto; }
         .mask-edit-row button.active { background: #d7f4dd; border-color: #50a665; }
+        .mask-edit-row button.reference-active { background: #dce8ff; border-color: #4c83d8; }
         .mask-edit-row input[type="number"] { width: 55px; }
+        .reference-stats { margin: 12px 0; line-height: 1.45; }
+        .paper-color-picker { width: 48px; height: 32px; padding: 2px; }
 
         .lightmap-preview {
             width: 100%;
@@ -284,6 +287,19 @@
                             <label for="maskBrushSize">Size:</label>
                             <input type="range" id="maskBrushSize" min="10" max="50" value="20" step="1">
                             <input type="number" id="maskBrushSizeValue" min="10" max="50" value="20">
+                        </div>
+                        <div class="mask-edit-row">
+                            <button id="addReferencePointBtn" type="button">Добавить эталонную точку</button>
+                        </div>
+                        <div class="mask-edit-row">
+                            <label for="referenceRadius">Радиус:</label>
+                            <input type="range" id="referenceRadius" min="10" max="200" value="50" step="1">
+                            <input type="number" id="referenceRadiusValue" min="10" max="200" value="50">
+                        </div>
+                        <div id="referenceStats" class="step-control reference-stats">Точек: 0; диапазон: -; среднее: -</div>
+                        <div class="mask-edit-row">
+                            <label for="paperColorPicker">Цвет бумаги:</label>
+                            <input id="paperColorPicker" class="paper-color-picker" type="color" value="#ffffff" aria-label="Цвет бумаги">
                         </div>
                     </div>
                     <button id="recalcLightMapBtn" disabled>Пересчитать карту освещенности</button>
