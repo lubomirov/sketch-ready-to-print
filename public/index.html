@@ -2,214 +2,19 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>Выпрямление рисунков OpenCV.js</title>
-    <style>
-        * { box-sizing: border-box; }
-        html, body { height: 100%; }
-        body {
-            font-family: sans-serif;
-            margin: 0;
-            background: #f0f0f0;
-            display: flex;
-        }
-
-        .tabs-rail {
-            flex: 0 0 48px;
-            width: 48px;
-            height: 100vh;
-            overflow-y: auto;
-            overflow-x: hidden;
-            background: #ddd;
-            padding: 0;
-            margin: 0;
-            display: flex;
-            flex-direction: column;
-            align-items: stretch;
-            gap: 0;
-        }
-
-        .tab-btn {
-            width: 48px;
-            height: 48px;
-            padding: 0;
-            margin: 0;
-            font-size: 13px;
-            font-weight: 700;
-            letter-spacing: 0.5px;
-            border: none;
-            border-radius: 0;
-            background: #ddd;
-            color: #666;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: background 0.15s ease;
-        }
-
-        .tab-btn:hover {
-            background: #ccc;
-        }
-
-        .tab-btn.active,
-        .tab-btn.active:hover {
-            background: #ffffff;
-            color: #D55717;
-        }
-
-        .tab-btn svg {
-            width: 32px;
-            height: 32px;
-            stroke: currentColor;
-            fill: none;
-        }
-
-        .sidebar {
-            flex: 0 0 300px;
-            width: 300px;
-            height: 100vh;
-            overflow-y: auto;
-            background: #ffffff;
-            border-right: 1px solid #ddd;
-            padding: 16px;
-            display: flex;
-            flex-direction: column;
-            gap: 24px;
-        }
-
-        .sidebar h2 {
-            font-size: 18px;
-            margin: 0 0 4px;
-        }
-
-        .tab-content {
-            display: flex;
-            flex-direction: column;
-            gap: 14px;
-        }
-
-        .tab-pane {
-            display: none;
-        }
-
-        .tab-pane.active {
-            display: block;
-        }
-
-        .step {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid #e0e0e0;
-        }
-        .step:last-of-type { border-bottom: none; padding-bottom: 0; }
-
-        .step-control { text-align: center; color: #666; }
-        .step-control.inactive { display: none; }
-
-        button:disabled { opacity: 0.5; pointer-events: none; }
-        button, .btn-file {
-            width: 100%;
-            padding: 10px 15px;
-            font-size: 16px;
-            cursor: pointer;
-            border: 1px solid #ccc;
-            border-radius: 3px;
-            background: #f0f0f0;
-            text-align: center;
-        }
-        .btn-file input[type="file"] { display: none; }
-        .btn-file:has(input:disabled) { opacity: 0.5; cursor: default; pointer-events: none; }
-
-        #opencvStatus { color: #AAA; }
-        #opencvStatus.ready { color: #388e3c; }
-
-        .mask-edit-title { font-weight: 600; margin-bottom: 6px; }
-        .mask-edit-row { display: flex; justify-content: center; gap: 8px; align-items: center; flex-wrap: wrap; margin: 12px 0; }
-        .mask-edit-row button { width: auto; }
-        .mask-edit-row button.active { background: #d7f4dd; border-color: #50a665; }
-        .mask-edit-row button.reference-active { background: #dce8ff; border-color: #4c83d8; }
-        .mask-edit-row input[type="number"] { width: 55px; }
-        .reference-stats { margin: 12px 0; line-height: 1.45; }
-        .paper-color-picker { width: 48px; height: 32px; padding: 2px; }
-
-        .lightmap-preview {
-            width: 100%;
-            height: 180px;
-            max-height: 180px;
-            border: 1px solid #d7d7d7;
-            background: #f8f8f8;
-            border-radius: 3px;
-            overflow: hidden;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .lightmap-preview canvas {
-            border: none;
-            max-width: 100%;
-            max-height: 100%;
-            width: auto;
-            height: auto;
-            background: #fff;
-            display: block;
-        }
-
-        .canvas-area {
-            flex: 1 1 auto;
-            height: 100vh;
-            overflow: auto;
-            display: flex;
-            align-items: flex-start;
-            justify-content: center;
-            padding: 20px;
-        }
-
-        canvas { border: 1px solid #ccc; max-width: 100%; background: #fff; height: auto; }
-
-        @media (max-width: 980px) {
-            body {
-                flex-direction: column;
-            }
-
-            .tabs-rail {
-                width: 100%;
-                flex-basis: auto;
-                height: auto;
-                flex-direction: row;
-                border-right: none;
-                border-bottom: 1px solid #ddd;
-            }
-
-            .sidebar {
-                width: 100%;
-                flex-basis: auto;
-                height: auto;
-                max-height: none;
-                border-right: none;
-                border-bottom: 1px solid #ddd;
-            }
-
-            .canvas-area {
-                height: auto;
-                min-height: 50vh;
-                padding: 14px;
-            }
-        }
-    </style>
-    <script async src="opencv.js" type="text/javascript"></script>
+    <title>Sketch Ready to Print</title>
+    <link rel="stylesheet" href="styles.css">
+    <script async src="vendor/opencv.js" type="text/javascript"></script>
     <script type="module" src="app.js"></script>
 </head>
 <body>
 
-    <div class="tabs-rail" role="tablist" aria-label="Этапы обработки">
+    <div class="tabs-rail" role="tablist">
         <button class="tab-btn active" type="button" data-tab="tab-1" role="tab" aria-selected="true" title="Фото">
             <svg viewBox="0 0 32 32" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M6 2H19L26 9V28A2 2 0 0 1 24 30H6A2 2 0 0 1 4 28V4A2 2 0 0 1 6 2Z"/>
-                <path d="M19 2V9H26"/>
-                <path d="M15 25V15ZM11 19L15 15L19 19"/>
+                <path d="M6 2H24A2 2 0 0 1 26 4V23L19 30H6A2 2 0 0 1 4 28V4A2 2 0 0 1 6 2Z"/>
+                <path d="M19 30V23H26"/>
+                <path d="M15 20V10ZM11 14L15 10L19 14"/>
             </svg>
         </button>
         <button class="tab-btn" type="button" data-tab="tab-2" role="tab" aria-selected="false" title="Углы">
@@ -238,10 +43,17 @@
                 <path d="M7 24h18"/>
             </svg>
         </button>
+        <div id="opencvStatus" class="opencv-status" title="OpenCV загружается...">
+            <svg viewBox="0 0 64 64" class="opencv-logo" aria-hidden="true">
+                <path fill="#EA2027" d="M24.3574 29.0814C21.5247 27.4459 19.3108 24.9214 18.059 21.8995C16.8073 18.8776 16.5877 15.527 17.4343 12.3676C18.2809 9.20811 20.1463 6.41627 22.7413 4.42506C25.3363 2.43385 28.5158 1.35455 31.7867 1.35455C35.0577 1.35455 38.2372 2.43385 40.8322 4.42506C43.4272 6.41627 45.2926 9.20811 46.1392 12.3676C46.9858 15.527 46.7662 18.8776 45.5144 21.8995C44.2627 24.9214 42.0488 27.4459 39.2161 29.0814L34.7424 21.3326C35.8693 20.682 36.75 19.6777 37.248 18.4754C37.746 17.2732 37.8334 15.9403 37.4966 14.6834C37.1598 13.4264 36.4176 12.3158 35.3853 11.5236C34.3529 10.7314 33.088 10.3021 31.7867 10.3021C30.4855 10.3021 29.2206 10.7314 28.1882 11.5236C27.1558 12.3158 26.4137 13.4264 26.0769 14.6834C25.7401 15.9403 25.8275 17.2732 26.3255 18.4754C26.8234 19.6777 27.7042 20.682 28.8311 21.3326L24.3574 29.0814Z"/>
+                <path fill="#0652DD" d="M56.1761 32.6786C59.0088 34.3141 61.2227 36.8385 62.4744 39.8604C63.7261 42.8824 63.9457 46.2329 63.0992 49.3924C62.2526 52.5518 60.3871 55.3437 57.7921 57.3349C55.1972 59.3261 52.0176 60.4054 48.7467 60.4054C45.4758 60.4054 42.2963 59.3261 39.7013 57.3349C37.1063 55.3437 35.2408 52.5518 34.3943 49.3924C33.5477 46.2329 33.7673 42.8824 35.019 39.8604C36.2707 36.8385 38.4846 34.3141 41.3173 32.6786L45.7911 40.4274C44.6642 41.078 43.7834 42.0823 43.2854 43.2845C42.7875 44.4867 42.7001 45.8197 43.0369 47.0766C43.3737 48.3335 44.1158 49.4442 45.1482 50.2364C46.1805 51.0285 47.4454 51.4579 48.7467 51.4579C50.048 51.4579 51.3129 51.0285 52.3453 50.2364C53.3776 49.4442 54.1197 48.3335 54.4565 47.0766C54.7933 45.8197 54.706 44.4867 54.208 43.2845C53.71 42.0823 52.8293 41.078 51.7023 40.4274L56.1761 32.6786Z"/>
+                <path fill="#009432" d="M30.0054 45.5467C30.0054 48.8176 28.9261 51.9971 26.9349 54.5921C24.9437 57.1871 22.1519 59.0526 18.9924 59.8991C15.8329 60.7457 12.4824 60.5261 9.46049 59.2744C6.43855 58.0227 3.91409 55.8088 2.27863 52.9761C0.64317 50.1434 -0.0118863 46.8502 0.415054 43.6072C0.841995 40.3643 2.32707 37.3528 4.63996 35.04C6.95285 32.7271 9.96429 31.242 13.2072 30.8151C16.4502 30.3881 19.7434 31.0432 22.5761 32.6786L18.1023 40.4274C16.9754 39.7768 15.6652 39.5162 14.3751 39.686C13.085 39.8559 11.8869 40.4467 10.9668 41.3668C10.0467 42.2869 9.45586 43.485 9.28601 44.7751C9.11616 46.0652 9.37676 47.3754 10.0274 48.5023C10.678 49.6292 11.6823 50.51 12.8845 51.008C14.0868 51.5059 15.4197 51.5933 16.6766 51.2565C17.9336 50.9197 19.0442 50.1776 19.8364 49.1452C20.6286 48.1129 21.0579 46.8479 21.0579 45.5467L30.0054 45.5467Z"/>
+            </svg>
+        </div>
     </div>
 
     <div class="sidebar">
-        <h2>Автокоррекция [ <span id="opencvStatus">Loading...</span> ]</h2>
+        <h2>Автокоррекция фотографии наброска</h2>
 
         <div class="tab-content">
             <div class="tab-pane active" id="tab-1" role="tabpanel">
@@ -296,7 +108,9 @@
                             <input type="range" id="referenceRadius" min="10" max="200" value="50" step="1">
                             <input type="number" id="referenceRadiusValue" min="10" max="200" value="50">
                         </div>
-                        <div id="referenceStats" class="step-control reference-stats">Точек: 0; диапазон: -; среднее: -</div>
+                        <div id="referenceStats" class="step-control reference-stats">
+                            <div class="reference-stats-summary">Точек: 0; диапазон: -; среднее: -</div>
+                        </div>
                         <div class="mask-edit-row">
                             <label for="paperColorPicker">Цвет бумаги:</label>
                             <input id="paperColorPicker" class="paper-color-picker" type="color" value="#ffffff" aria-label="Цвет бумаги">

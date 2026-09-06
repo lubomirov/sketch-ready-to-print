@@ -1,6 +1,6 @@
 import { findCorners, findCurvedEdges, rectifyCurvedEdges, transformPerspective } from './geometry.js';
 import { applyBrightnessWithLightMap, buildNormalizedLightMap, buildSheetMask } from './filters.js';
-import { getMousePosition, initTabs, renderCornersOverlay, renderCurvedEdgesOverlay, renderMaskOverlay } from './ui.js';
+import { createUi, getMousePosition, initTabs, renderCornersOverlay, renderCurvedEdgesOverlay, renderMaskOverlay } from './ui.js';
 
 let currentMat = null;
 let corners = [];
@@ -27,85 +27,26 @@ const state = {
     busy: false
 };
 
-const canvas = document.getElementById('canvas');
+const { elements, syncUi: syncUiElements } = createUi({
+    onReferenceRadiusInput: () => {
+        if (state.maskEditing) renderMaskEditView();
+    }
+});
+const {
+    canvas, opencvStatus, fileInput, findCornersBtn, cornersStatus, fixGeometryBtn,
+    findCurvedEdgesBtn, curvedInfo, fixCurvedEdgesBtn, detectSheetMaskBtn,
+    recalcLightMapBtn, normalizeBrightnessBtn, saveBtn, maskAddBtn, maskEraseBtn,
+    maskBrushSize, addReferencePointBtn, referenceRadius, referenceStats,
+    paperColorPicker, lightMapCanvas, inputFilename, processStatus, marginInput
+} = elements;
 const ctxInput = canvas.getContext('2d');
-const opencvStatus = document.getElementById('opencvStatus');
-const fileInput = document.getElementById('fileInput');
-const findCornersBtn = document.getElementById('findCornersBtn');
-const cornersStatus = document.getElementById('cornersStatus');
-const fixGeometryBtn = document.getElementById('fixGeometryBtn');
-const geometryControls = document.getElementById('geometryControls');
-const findCurvedEdgesBtn = document.getElementById('findCurvedEdgesBtn');
-const curvedInfo = document.getElementById('curvedInfo');
-const fixCurvedEdgesBtn = document.getElementById('fixCurvedEdgesBtn');
-const detectSheetMaskBtn = document.getElementById('detectSheetMaskBtn');
-const recalcLightMapBtn = document.getElementById('recalcLightMapBtn');
-const normalizeBrightnessBtn = document.getElementById('normalizeBrightnessBtn');
-const saveBtn = document.getElementById('saveBtn');
-const editMask = document.getElementById('editMask');
-const maskAddBtn = document.getElementById('maskAddBtn');
-const maskEraseBtn = document.getElementById('maskEraseBtn');
-const maskBrushSize = document.getElementById('maskBrushSize');
-const maskBrushSizeValue = document.getElementById('maskBrushSizeValue');
-const addReferencePointBtn = document.getElementById('addReferencePointBtn');
-const referenceRadius = document.getElementById('referenceRadius');
-const referenceRadiusValue = document.getElementById('referenceRadiusValue');
-const referenceStats = document.getElementById('referenceStats');
-const paperColorPicker = document.getElementById('paperColorPicker');
-const lightMapZone = document.getElementById('lightMapZone');
-const lightMapCanvas = document.getElementById('lightMapCanvas');
-const inputFilename = document.getElementById('input_filename');
-const processStatus = document.getElementById('processStatus');
-
-const marginInput = document.getElementById('marginInput');
-const marginValue = document.getElementById('marginValue');
-
-// Синхронизация ползунков полей
-marginInput.addEventListener('input', (e) => marginValue.value = e.target.value);
-marginValue.addEventListener('input', (e) => marginInput.value = e.target.value);
-maskBrushSize.addEventListener('input', (e) => maskBrushSizeValue.value = e.target.value);
-maskBrushSizeValue.addEventListener('input', (e) => maskBrushSize.value = e.target.value);
-referenceRadius.addEventListener('input', (e) => referenceRadiusValue.value = e.target.value);
-referenceRadiusValue.addEventListener('input', (e) => referenceRadius.value = e.target.value);
-referenceRadius.addEventListener('input', () => {
-    if (state.maskEditing) renderMaskEditView();
-});
-referenceRadiusValue.addEventListener('input', () => {
-    if (state.maskEditing) renderMaskEditView();
-});
-
-function setInactive(element, inactive) {
-    if (!element) return;
-    element.classList.toggle('inactive', inactive);
-    if (element.tagName === 'BUTTON') element.disabled = inactive;
-}
 
 function syncUi() {
-    setInactive(findCornersBtn, !state.imageLoaded || state.busy);
-    setInactive(cornersStatus, !state.cornersChecked);
-    setInactive(fixGeometryBtn, !state.imageLoaded || !state.cornersFound || state.busy);
-    setInactive(geometryControls, !state.cornersFound);
-
-    setInactive(findCurvedEdgesBtn, !state.imageLoaded || state.busy);
-    setInactive(curvedInfo, !state.curvesReady);
-    setInactive(fixCurvedEdgesBtn, !state.imageLoaded || !state.curvesReady || state.busy);
-
-    setInactive(detectSheetMaskBtn, !state.imageLoaded || state.busy);
-    setInactive(recalcLightMapBtn, !state.imageLoaded || !sheetMask || !state.maskEditing || state.busy);
-    setInactive(normalizeBrightnessBtn, !state.imageLoaded || !lightMap || state.busy);
-    setInactive(editMask, !state.maskEditing);
-    setInactive(lightMapZone, !state.maskEditing);
-    setInactive(saveBtn, !state.imageLoaded || !outputImageDataUrl || state.busy);
-
-    const maskControlsDisabled = !state.maskEditing || state.busy;
-    if (maskAddBtn) maskAddBtn.disabled = maskControlsDisabled;
-    if (maskEraseBtn) maskEraseBtn.disabled = maskControlsDisabled;
-    if (maskBrushSize) maskBrushSize.disabled = maskControlsDisabled;
-    if (maskBrushSizeValue) maskBrushSizeValue.disabled = maskControlsDisabled;
-    if (addReferencePointBtn) addReferencePointBtn.disabled = maskControlsDisabled;
-    if (referenceRadius) referenceRadius.disabled = maskControlsDisabled;
-    if (referenceRadiusValue) referenceRadiusValue.disabled = maskControlsDisabled;
-    if (paperColorPicker) paperColorPicker.disabled = maskControlsDisabled;
+    syncUiElements(state, {
+        hasSheetMask: Boolean(sheetMask),
+        hasLightMap: Boolean(lightMap),
+        canSave: Boolean(outputImageDataUrl)
+    });
 }
 
 function resetGeometryState() {
@@ -201,46 +142,108 @@ function formatRgb(rgb) {
     return `${rgb[0]}-${rgb[1]}-${rgb[2]}`;
 }
 
+function getBrightness(rgb) {
+    return Math.round((rgb[0] + rgb[1] + rgb[2]) / 3);
+}
+
+function parseHexColor(hexColor) {
+    return [
+        parseInt(hexColor.slice(1, 3), 16),
+        parseInt(hexColor.slice(3, 5), 16),
+        parseInt(hexColor.slice(5, 7), 16)
+    ];
+}
+
+function getPixelsInReferenceCircle(point, radius, visitPixel) {
+    const radiusSquared = radius * radius;
+    const left = Math.max(0, Math.ceil(point.x - radius));
+    const right = Math.min(currentMat.cols - 1, Math.floor(point.x + radius));
+    const top = Math.max(0, Math.ceil(point.y - radius));
+    const bottom = Math.min(currentMat.rows - 1, Math.floor(point.y + radius));
+
+    for (let y = top; y <= bottom; y++) {
+        for (let x = left; x <= right; x++) {
+            const dx = x - point.x;
+            const dy = y - point.y;
+            if (dx * dx + dy * dy <= radiusSquared) visitPixel(x, y);
+        }
+    }
+}
+
+function getNormalizedLightMapAverage(point, radius) {
+    if (!normalizedLightMap) return null;
+
+    const scaleX = normalizedLightMap.cols / currentMat.cols;
+    const scaleY = normalizedLightMap.rows / currentMat.rows;
+    const mapCenterX = point.x * scaleX;
+    const mapCenterY = point.y * scaleY;
+    const mapRadiusX = Math.max(1, radius * scaleX);
+    const mapRadiusY = Math.max(1, radius * scaleY);
+    const left = Math.max(0, Math.ceil(mapCenterX - mapRadiusX));
+    const right = Math.min(normalizedLightMap.cols - 1, Math.floor(mapCenterX + mapRadiusX));
+    const top = Math.max(0, Math.ceil(mapCenterY - mapRadiusY));
+    const bottom = Math.min(normalizedLightMap.rows - 1, Math.floor(mapCenterY + mapRadiusY));
+    let sum = 0;
+    let pixelCount = 0;
+
+    for (let y = top; y <= bottom; y++) {
+        for (let x = left; x <= right; x++) {
+            const dx = (x - mapCenterX) / mapRadiusX;
+            const dy = (y - mapCenterY) / mapRadiusY;
+            if (dx * dx + dy * dy > 1) continue;
+            sum += normalizedLightMap.data[y * normalizedLightMap.cols + x];
+            pixelCount++;
+        }
+    }
+
+    return pixelCount > 0 ? Math.round(sum / pixelCount) : null;
+}
+
 function updateReferenceStats() {
     if (!referenceStats) return;
     if (!currentMat || referencePoints.length === 0) {
-        referenceStats.textContent = 'Точек: 0; диапазон: -; среднее: -';
+        referenceStats.innerHTML = '<div class="reference-stats-summary">Точек: 0; диапазон: -; среднее: -</div>';
         return;
     }
 
     const radius = getReferenceRadius();
-    const radiusSquared = radius * radius;
     const minimum = [255, 255, 255];
     const maximum = [0, 0, 0];
     const sum = [0, 0, 0];
     let pixelCount = 0;
 
-    referencePoints.forEach((point) => {
-        const left = Math.max(0, Math.ceil(point.x - radius));
-        const right = Math.min(currentMat.cols - 1, Math.floor(point.x + radius));
-        const top = Math.max(0, Math.ceil(point.y - radius));
-        const bottom = Math.min(currentMat.rows - 1, Math.floor(point.y + radius));
+    const pointStats = referencePoints.map((point) => {
+        const pointSum = [0, 0, 0];
+        let pointPixelCount = 0;
 
-        for (let y = top; y <= bottom; y++) {
-            for (let x = left; x <= right; x++) {
-                const dx = x - point.x;
-                const dy = y - point.y;
-                if (dx * dx + dy * dy > radiusSquared) continue;
-
-                const pixelIndex = (y * currentMat.cols + x) * 4;
-                for (let channel = 0; channel < 3; channel++) {
-                    const value = currentMat.data[pixelIndex + channel];
-                    minimum[channel] = Math.min(minimum[channel], value);
-                    maximum[channel] = Math.max(maximum[channel], value);
-                    sum[channel] += value;
-                }
-                pixelCount++;
+        getPixelsInReferenceCircle(point, radius, (x, y) => {
+            const pixelIndex = (y * currentMat.cols + x) * 4;
+            for (let channel = 0; channel < 3; channel++) {
+                const value = currentMat.data[pixelIndex + channel];
+                minimum[channel] = Math.min(minimum[channel], value);
+                maximum[channel] = Math.max(maximum[channel], value);
+                sum[channel] += value;
+                pointSum[channel] += value;
             }
-        }
+            pixelCount++;
+            pointPixelCount++;
+        });
+
+        return {
+            rgb: pointSum.map((value) => Math.round(value / pointPixelCount)),
+            lightMap: getNormalizedLightMapAverage(point, radius)
+        };
     });
 
     const average = sum.map((value) => Math.round(value / pixelCount));
-    referenceStats.textContent = `Точек: ${referencePoints.length}; диапазон: от ${formatRgb(minimum)} до ${formatRgb(maximum)}; среднее: ${formatRgb(average)}`;
+    const pointRows = pointStats.map((stats, index) => {
+        const mapValue = stats.lightMap === null ? 'карта: -' : `карта: ${stats.lightMap}`;
+        return `<li>яркость: ${getBrightness(stats.rgb)}; ${mapValue}</li>`;
+    }).join('');
+    referenceStats.innerHTML = `
+        <div class="reference-stats-summary">Точек: ${referencePoints.length}; диапазон: от ${formatRgb(minimum)} до ${formatRgb(maximum)}; среднее: ${formatRgb(average)}</div>
+        <ol class="reference-stats-points">${pointRows}</ol>
+    `;
 }
 
 function renderReferencePoints() {
@@ -362,8 +365,10 @@ saveBtn.addEventListener('click', () => {
 const checkOpenCv = setInterval(() => {
     if (typeof window.cv !== 'undefined' && window.cv.Mat) {
         clearInterval(checkOpenCv);
-        opencvStatus.innerText = 'OpenCV';
-        opencvStatus.className = 'ready';
+        if (opencvStatus) {
+            opencvStatus.classList.add('ready');
+            opencvStatus.title = 'OpenCV готов';
+        }
         fileInput.disabled = false;
     }
 }, 100);
@@ -485,6 +490,7 @@ recalcLightMapBtn.addEventListener('click', () => {
         const lightMaps = buildNormalizedLightMap(currentMat, sheetMask);
         lightMap = lightMaps.lightMap;
         normalizedLightMap = lightMaps.normalizedLightMap;
+        updateReferenceStats();
         renderLightMapView();
     });
 });
@@ -494,7 +500,13 @@ normalizeBrightnessBtn.addEventListener('click', () => {
     if (!currentMat || !lightMap) return;
 
     runStep('Выравнивание яркости...', () => {
-        const finalMat = applyBrightnessWithLightMap(currentMat, lightMap);
+        const finalMat = applyBrightnessWithLightMap(
+            currentMat,
+            lightMap,
+            referencePoints,
+            getReferenceRadius(),
+            parseHexColor(paperColorPicker.value)
+        );
         setCurrentMat(finalMat);
         resetGeometryState();
         cancelBrightnessEditState();

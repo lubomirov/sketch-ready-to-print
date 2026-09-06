@@ -109,3 +109,91 @@ export function initTabs() {
         btn.addEventListener('click', () => activateTab(btn.dataset.tab));
     });
 }
+
+export function createUi({ onReferenceRadiusInput }) {
+    const elements = {
+        canvas: document.getElementById('canvas'),
+        opencvStatus: document.getElementById('opencvStatus'),
+        fileInput: document.getElementById('fileInput'),
+        findCornersBtn: document.getElementById('findCornersBtn'),
+        cornersStatus: document.getElementById('cornersStatus'),
+        fixGeometryBtn: document.getElementById('fixGeometryBtn'),
+        geometryControls: document.getElementById('geometryControls'),
+        findCurvedEdgesBtn: document.getElementById('findCurvedEdgesBtn'),
+        curvedInfo: document.getElementById('curvedInfo'),
+        fixCurvedEdgesBtn: document.getElementById('fixCurvedEdgesBtn'),
+        detectSheetMaskBtn: document.getElementById('detectSheetMaskBtn'),
+        recalcLightMapBtn: document.getElementById('recalcLightMapBtn'),
+        normalizeBrightnessBtn: document.getElementById('normalizeBrightnessBtn'),
+        saveBtn: document.getElementById('saveBtn'),
+        editMask: document.getElementById('editMask'),
+        maskAddBtn: document.getElementById('maskAddBtn'),
+        maskEraseBtn: document.getElementById('maskEraseBtn'),
+        maskBrushSize: document.getElementById('maskBrushSize'),
+        maskBrushSizeValue: document.getElementById('maskBrushSizeValue'),
+        addReferencePointBtn: document.getElementById('addReferencePointBtn'),
+        referenceRadius: document.getElementById('referenceRadius'),
+        referenceRadiusValue: document.getElementById('referenceRadiusValue'),
+        referenceStats: document.getElementById('referenceStats'),
+        paperColorPicker: document.getElementById('paperColorPicker'),
+        lightMapZone: document.getElementById('lightMapZone'),
+        lightMapCanvas: document.getElementById('lightMapCanvas'),
+        inputFilename: document.getElementById('input_filename'),
+        processStatus: document.getElementById('processStatus'),
+        marginInput: document.getElementById('marginInput'),
+        marginValue: document.getElementById('marginValue')
+    };
+
+    const {
+        marginInput, marginValue, maskBrushSize, maskBrushSizeValue,
+        referenceRadius, referenceRadiusValue
+    } = elements;
+
+    marginInput.addEventListener('input', (event) => marginValue.value = event.target.value);
+    marginValue.addEventListener('input', (event) => marginInput.value = event.target.value);
+    maskBrushSize.addEventListener('input', (event) => maskBrushSizeValue.value = event.target.value);
+    maskBrushSizeValue.addEventListener('input', (event) => maskBrushSize.value = event.target.value);
+    referenceRadius.addEventListener('input', (event) => referenceRadiusValue.value = event.target.value);
+    referenceRadiusValue.addEventListener('input', (event) => referenceRadius.value = event.target.value);
+    referenceRadius.addEventListener('input', onReferenceRadiusInput);
+    referenceRadiusValue.addEventListener('input', onReferenceRadiusInput);
+
+    function setInactive(element, inactive) {
+        if (!element) return;
+        element.classList.toggle('inactive', inactive);
+        if (element.tagName === 'BUTTON') element.disabled = inactive;
+    }
+
+    function syncUi(state, { hasSheetMask, hasLightMap, canSave }) {
+        const {
+            findCornersBtn, cornersStatus, fixGeometryBtn, geometryControls,
+            findCurvedEdgesBtn, curvedInfo, fixCurvedEdgesBtn, detectSheetMaskBtn,
+            recalcLightMapBtn, normalizeBrightnessBtn, editMask, lightMapZone,
+            saveBtn, maskAddBtn, maskEraseBtn, maskBrushSize, maskBrushSizeValue,
+            addReferencePointBtn, referenceRadius, referenceRadiusValue, paperColorPicker
+        } = elements;
+
+        setInactive(findCornersBtn, !state.imageLoaded || state.busy);
+        setInactive(cornersStatus, !state.cornersChecked);
+        setInactive(fixGeometryBtn, !state.imageLoaded || !state.cornersFound || state.busy);
+        setInactive(geometryControls, !state.cornersFound);
+        setInactive(findCurvedEdgesBtn, !state.imageLoaded || state.busy);
+        setInactive(curvedInfo, !state.curvesReady);
+        setInactive(fixCurvedEdgesBtn, !state.imageLoaded || !state.curvesReady || state.busy);
+        setInactive(detectSheetMaskBtn, !state.imageLoaded || state.busy);
+        setInactive(recalcLightMapBtn, !state.imageLoaded || !hasSheetMask || !state.maskEditing || state.busy);
+        setInactive(normalizeBrightnessBtn, !state.imageLoaded || !hasLightMap || state.busy);
+        setInactive(editMask, !state.maskEditing);
+        setInactive(lightMapZone, !state.maskEditing);
+        setInactive(saveBtn, !state.imageLoaded || !canSave || state.busy);
+
+        const maskControlsDisabled = !state.maskEditing || state.busy;
+        [maskAddBtn, maskEraseBtn, maskBrushSize, maskBrushSizeValue, addReferencePointBtn,
+            referenceRadius, referenceRadiusValue, paperColorPicker]
+            .forEach((element) => {
+                if (element) element.disabled = maskControlsDisabled;
+            });
+    }
+
+    return { elements, syncUi };
+}

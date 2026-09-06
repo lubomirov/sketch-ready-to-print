@@ -113,13 +113,14 @@ export function buildNormalizedLightMap(srcMat, sheetMask) {
     };
 }
 
-// Применяет ранее рассчитанную карту освещенности к исходному изображению без повторного inpaint+blur.
-export function applyBrightnessWithLightMap(srcMat, lightMap) {
+// Применяет карту освещенности, калиброванную по отмеченным областям чистой бумаги.
+export function applyBrightnessWithLightMap(srcMat, lightMap, referencePoints = [], referenceRadius = 0, targetColor = [255, 255, 255]) {
     const resizedLightMap = new cv.Mat();
     const minLight = new cv.Mat(srcMat.rows, srcMat.cols, cv.CV_8UC1);
     const safeLightMap = new cv.Mat();
     const channels = new cv.MatVector();
     const normalizedChannels = new cv.MatVector();
+    const sourceChannelCount = srcMat.channels();
     let resultMat = null;
 
     cv.resize(lightMap, resizedLightMap, new cv.Size(srcMat.cols, srcMat.rows), 0, 0, cv.INTER_CUBIC);
@@ -127,14 +128,53 @@ export function applyBrightnessWithLightMap(srcMat, lightMap) {
     cv.max(resizedLightMap, minLight, safeLightMap);
     cv.split(srcMat, channels);
 
+    const colorScales = [1, 1, 1];
+    if (referencePoints.length > 0 && referenceRadius > 0) {
+        const colorLightProducts = [0, 0, 0];
+        let lightSquares = 0;
+        const radiusSquared = referenceRadius * referenceRadius;
+
+        referencePoints.forEach((point) => {
+            const left = Math.max(0, Math.ceil(point.x - referenceRadius));
+            const right = Math.min(srcMat.cols - 1, Math.floor(point.x + referenceRadius));
+            const top = Math.max(0, Math.ceil(point.y - referenceRadius));
+            const bottom = Math.min(srcMat.rows - 1, Math.floor(point.y + referenceRadius));
+
+            for (let y = top; y <= bottom; y++) {
+                for (let x = left; x <= right; x++) {
+                    const dx = x - point.x;
+                    const dy = y - point.y;
+                    if (dx * dx + dy * dy > radiusSquared) continue;
+
+                    const pixelIndex = y * srcMat.cols + x;
+                    const light = safeLightMap.data[pixelIndex];
+                    lightSquares += light * light;
+                    for (let channel = 0; channel < 3; channel++) {
+                        colorLightProducts[channel] += srcMat.data[pixelIndex * sourceChannelCount + channel] * light;
+                    }
+                }
+            }
+        });
+
+        if (lightSquares > 0) {
+            for (let channel = 0; channel < 3; channel++) {
+                colorScales[channel] = colorLightProducts[channel] / lightSquares;
+            }
+        }
+    }
+
     for (let i = 0; i < 3; i++) {
         const channel = channels.get(i);
-        const divided = new cv.Mat();
+        const channelFloat = new cv.Mat();
+        const estimatedPaperFloat = new cv.Mat();
+        const dividedFloat = new cv.Mat();
         const finalChannel = new cv.Mat();
-        cv.divide(channel, safeLightMap, divided, 255);
-        cv.convertScaleAbs(divided, finalChannel, BRIGHTNESS_CONTRAST, BRIGHTNESS_OFFSET);
+        channel.convertTo(channelFloat, cv.CV_32F);
+        safeLightMap.convertTo(estimatedPaperFloat, cv.CV_32F, colorScales[i]);
+        cv.divide(channelFloat, estimatedPaperFloat, dividedFloat, targetColor[i]);
+        dividedFloat.convertTo(finalChannel, cv.CV_8U, BRIGHTNESS_CONTRAST, BRIGHTNESS_OFFSET);
         normalizedChannels.push_back(finalChannel);
-        channel.delete(); divided.delete(); finalChannel.delete();
+        channel.delete(); channelFloat.delete(); estimatedPaperFloat.delete(); dividedFloat.delete(); finalChannel.delete();
     }
 
     if (channels.size() > 3) {

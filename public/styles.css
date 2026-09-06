@@ -1,0 +1,218 @@
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+    font-family: sans-serif;
+    margin: 0;
+    background: #f0f0f0;
+    display: flex;
+}
+
+.tabs-rail {
+    flex: 0 0 64px;
+    width: 64px;
+    height: 100vh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    background: #ddd;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+}
+
+.tab-btn {
+    width: 64px;
+    height: 64px;
+    padding: 0;
+    margin: 0;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    border: none;
+    border-radius: 0;
+    background: #ddd;
+    color: #666;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s ease;
+}
+
+.tab-btn:hover {
+    background: #ccc;
+}
+
+.tab-btn.active,
+.tab-btn.active:hover {
+    background: #ffffff;
+    color: #D55717;
+}
+
+.tab-btn svg {
+    width: 32px;
+    height: 32px;
+    stroke: currentColor;
+    fill: none;
+}
+
+.sidebar {
+    flex: 0 0 300px;
+    width: 300px;
+    height: 100vh;
+    overflow-y: auto;
+    background: #ffffff;
+    border-right: 1px solid #ddd;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.sidebar h2 {
+    text-align: center;
+    font-size: 18px;
+    margin: 0 0 4px;
+}
+
+.tab-content {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.tab-pane {
+    display: none;
+}
+
+.tab-pane.active {
+    display: block;
+}
+
+.step {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #e0e0e0;
+}
+.step:last-of-type { border-bottom: none; padding-bottom: 0; }
+
+.step-control { text-align: center; color: #666; }
+.step-control.inactive { display: none; }
+
+button:disabled { opacity: 0.5; pointer-events: none; }
+button, .btn-file {
+    width: 100%;
+    padding: 10px 15px;
+    font-size: 16px;
+    cursor: pointer;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    background: #f0f0f0;
+    text-align: center;
+}
+.btn-file input[type="file"] { display: none; }
+.btn-file:has(input:disabled) { opacity: 0.5; cursor: default; pointer-events: none; }
+
+.opencv-status {
+    margin-top: auto;
+    width: 64px;
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    filter: grayscale(100%);
+    opacity: 0.35;
+    transition: filter 0.3s ease, opacity 0.3s ease;
+    user-select: none;
+}
+
+.opencv-status.ready {
+    filter: grayscale(0%);
+    opacity: 1;
+}
+
+.opencv-status svg {
+    width: 32px;
+    height: 32px;
+    display: block;
+}
+
+.mask-edit-title { font-weight: 600; margin-bottom: 6px; }
+.mask-edit-row { display: flex; justify-content: center; gap: 8px; align-items: center; flex-wrap: wrap; margin: 12px 0; }
+.mask-edit-row button { width: auto; }
+.mask-edit-row button.active { background: #d7f4dd; border-color: #50a665; }
+.mask-edit-row button.reference-active { background: #dce8ff; border-color: #4c83d8; }
+.mask-edit-row input[type="number"] { width: 55px; }
+.reference-stats { margin: 12px 0; line-height: 1.45; text-align: left; }
+.reference-stats-summary { text-align: center; }
+.reference-stats-points { margin: 6px 0 0; padding-left: 20px; }
+.paper-color-picker { width: 48px; height: 32px; padding: 2px; }
+
+.lightmap-preview {
+    width: 100%;
+    height: 180px;
+    max-height: 180px;
+    border: 1px solid #d7d7d7;
+    background: #f8f8f8;
+    border-radius: 3px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.lightmap-preview canvas {
+    border: none;
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: auto;
+    background: #fff;
+    display: block;
+}
+
+.canvas-area {
+    flex: 1 1 auto;
+    height: 100vh;
+    overflow: auto;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 20px;
+}
+
+canvas { border: 1px solid #ccc; max-width: 100%; background: #fff; height: auto; }
+
+@media (max-width: 980px) {
+    body {
+        flex-direction: column;
+    }
+
+    .tabs-rail {
+        width: 100%;
+        flex-basis: auto;
+        height: auto;
+        flex-direction: row;
+        border-right: none;
+        border-bottom: 1px solid #ddd;
+    }
+
+    .sidebar {
+        width: 100%;
+        flex-basis: auto;
+        height: auto;
+        max-height: none;
+        border-right: none;
+        border-bottom: 1px solid #ddd;
+    }
+
+    .canvas-area {
+        height: auto;
+        min-height: 50vh;
+        padding: 14px;
+    }
+}
