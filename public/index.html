@@ -53,12 +53,12 @@
     </div>
 
     <div class="sidebar">
-        <h2>Автокоррекция фотографии наброска</h2>
+        <h2>Correction of Sketch Photo</h2>
 
         <div class="tab-content">
             <div class="tab-pane active" id="tab-1" role="tabpanel">
                 <div class="step">
-                    <label class="btn-file">Открыть фото
+                    <label class="btn-file">Open Photo
                         <input type="file" id="fileInput" accept="image/*" disabled>
                     </label>
                     <div id="input_filename" class="step-control">no file</div>
@@ -67,11 +67,11 @@
 
             <div class="tab-pane" id="tab-2" role="tabpanel">
                 <div class="step">
-                    <button id="findCornersBtn" disabled>Найти углы</button>
+                    <button id="findCornersBtn" disabled>Find Corners</button>
                     <div id="cornersStatus" class="step-control inactive"></div>
-                    <button id="fixGeometryBtn" disabled>Исправить перспективу</button>
+                    <button id="fixGeometryBtn" disabled>Fix Perspective</button>
                     <div id="geometryControls" class="step-control inactive">
-                        <label for="marginInput">Поля (px):</label>
+                        <label for="marginInput">Margins (px):</label>
                         <input type="range" id="marginInput" min="0" max="200" value="75" step="5">
                         <input type="number" id="marginValue" min="0" max="200" value="75" style="width: 45px;">
                     </div>
@@ -80,17 +80,17 @@
 
             <div class="tab-pane" id="tab-3" role="tabpanel">
                 <div class="step">
-                    <button id="findCurvedEdgesBtn" disabled>Найти искривления</button>
+                    <button id="findCurvedEdgesBtn" disabled>Find Curved Edges</button>
                     <div id="curvedInfo" class="step-control inactive"></div>
-                    <button id="fixCurvedEdgesBtn" disabled>Исправить кривые грани</button>
+                    <button id="fixCurvedEdgesBtn" disabled>Fix Curved Edges</button>
                 </div>
             </div>
 
             <div class="tab-pane" id="tab-4" role="tabpanel">
                 <div class="step">
-                    <button id="detectSheetMaskBtn" disabled>Определить фон</button>
+                    <button id="detectSheetMaskBtn" disabled>Detect Background</button>
                     <div id="editMask" class="step-control inactive">
-                        Все зеленое надо стереть, чтобы выявить перепады освещения
+                        Erase all green to reveal lighting variations
                         <div class="mask-edit-row">
                             <button id="maskAddBtn" type="button">Add Green</button>
                             <button id="maskEraseBtn" type="button">Erase</button>
@@ -101,19 +101,36 @@
                             <input type="number" id="maskBrushSizeValue" min="10" max="50" value="20">
                         </div>
                         <div class="mask-edit-row">
-                            <button id="addReferencePointBtn" type="button">Добавить эталонную точку</button>
+                            <label>Режим:</label>
+                            <button id="paperModeWhiteBtn" type="button" class="active">Белая бумага</button>
+                            <button id="paperModeColorBtn" type="button">Цветная бумага</button>
                         </div>
-                        <div class="mask-edit-row">
-                            <label for="referenceRadius">Радиус:</label>
-                            <input type="range" id="referenceRadius" min="10" max="200" value="50" step="1">
-                            <input type="number" id="referenceRadiusValue" min="10" max="200" value="50">
-                        </div>
-                        <div id="referenceStats" class="step-control reference-stats">
-                            <div class="reference-stats-summary">Точек: 0; диапазон: -; среднее: -</div>
-                        </div>
-                        <div class="mask-edit-row">
-                            <label for="paperColorPicker">Цвет бумаги:</label>
-                            <input id="paperColorPicker" class="paper-color-picker" type="color" value="#ffffff" aria-label="Цвет бумаги">
+                        <div id="coloredPaperControls" class="step-control inactive">
+                            <div class="mask-edit-row">
+                                <button id="addReferencePointBtn" type="button">Эталон бумаги</button>
+                                <button id="addBlackReferencePointBtn" type="button">Эталон чёрного</button>
+                                <button id="addWhiteReferencePointBtn" type="button">Эталон белого</button>
+                            </div>
+                            <div class="mask-edit-row">
+                                <label for="referenceRadius">Радиус:</label>
+                                <input type="range" id="referenceRadius" min="10" max="200" value="50" step="1">
+                                <input type="number" id="referenceRadiusValue" min="10" max="200" value="50">
+                            </div>
+                            <div id="referenceStats" class="step-control reference-stats">
+                                <div class="reference-stats-summary">Точек: 0; диапазон: -; среднее: -</div>
+                            </div>
+                            <div class="mask-edit-row">
+                                <label for="blackColorPicker">Цвет чёрного:</label>
+                                <input id="blackColorPicker" class="paper-color-picker" type="color" value="#000000" aria-label="Цвет чёрного">
+                            </div>
+                            <div class="mask-edit-row">
+                                <label for="paperColorPicker">Цвет бумаги:</label>
+                                <input id="paperColorPicker" class="paper-color-picker" type="color" value="#ffffff" aria-label="Цвет бумаги">
+                            </div>
+                            <div class="mask-edit-row">
+                                <label for="whiteColorPicker">Цвет светлого эталона:</label>
+                                <input id="whiteColorPicker" class="paper-color-picker" type="color" value="#ffffff" aria-label="Цвет светлого эталона">
+                            </div>
                         </div>
                     </div>
                     <button id="recalcLightMapBtn" disabled>Пересчитать карту освещенности</button>
@@ -138,7 +155,15 @@
     </div>
 
     <div class="canvas-area">
-        <canvas id="canvas"></canvas>
+        <div id="canvasViewport" class="canvas-viewport">
+            <canvas id="canvas"></canvas>
+            <canvas id="overlayCanvas"></canvas>
+            <canvas id="cursorCanvas"></canvas>
+        </div>
+        <div class="viewport-controls" aria-label="Масштаб изображения">
+            <button id="fitZoomBtn" type="button" class="active">Fit to screen</button>
+            <button id="actualZoomBtn" type="button">1:1</button>
+        </div>
     </div>
 
 </body>

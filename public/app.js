@@ -1,20 +1,22 @@
 import { findCorners, findCurvedEdges, rectifyCurvedEdges, transformPerspective } from './geometry.js';
 import { applyBrightnessWithLightMap, buildNormalizedLightMap, buildSheetMask } from './filters.js';
-import { createUi, getMousePosition, initTabs, renderCornersOverlay, renderCurvedEdgesOverlay, renderMaskOverlay } from './ui.js';
+import { createUi, initTabs } from './ui.js';
+import { renderCornersOverlay, renderCurvedEdgesOverlay, renderMaskOverlay, renderReferencePoints } from './renderers.js';
+import { loadImageFromFile, saveImageToFile, saveLightmapToFile, loadLightmapFromFile } from './file-io.js';
+import { CanvasViewport } from './viewport.js';
+import { GeometryTool, MaskTool, ReferenceTool } from './tools.js';
 
 let currentMat = null;
 let corners = [];
 let edgePoints = [];
-let dragIdx = -1;
 let sheetMask = null;
 let lightMap = null;
 let normalizedLightMap = null;
-let maskPainting = false;
 let maskPaintMode = 'add';
-let lastMaskPoint = null;
 let referencePointEditing = false;
 let referencePoints = [];
-let draggedReferencePointIndex = -1;
+let referencePointType = 'paper';
+let paperMode = 'white';
 let originalFileName = 'image';
 let outputImageDataUrl = '';
 
@@ -27,24 +29,77 @@ const state = {
     busy: false
 };
 
-const { elements, syncUi: syncUiElements } = createUi({
+const { elements, syncUi: syncUiControls } = createUi({
     onReferenceRadiusInput: () => {
         if (state.maskEditing) renderMaskEditView();
     }
 });
 const {
+    canvasViewport, overlayCanvas, cursorCanvas, fitZoomBtn, actualZoomBtn,
     canvas, opencvStatus, fileInput, findCornersBtn, cornersStatus, fixGeometryBtn,
-    findCurvedEdgesBtn, curvedInfo, fixCurvedEdgesBtn, detectSheetMaskBtn,
-    recalcLightMapBtn, normalizeBrightnessBtn, saveBtn, maskAddBtn, maskEraseBtn,
-    maskBrushSize, addReferencePointBtn, referenceRadius, referenceStats,
-    paperColorPicker, lightMapCanvas, inputFilename, processStatus, marginInput
+    geometryControls, findCurvedEdgesBtn, curvedInfo, fixCurvedEdgesBtn, detectSheetMaskBtn,
+    recalcLightMapBtn, normalizeBrightnessBtn, saveBtn, editMask, maskAddBtn, maskEraseBtn,
+    maskBrushSize, maskBrushSizeValue, paperModeWhiteBtn, paperModeColorBtn,
+    addReferencePointBtn, addBlackReferencePointBtn, addWhiteReferencePointBtn,
+    referenceRadius, referenceRadiusValue, referenceStats,
+    blackColorPicker, paperColorPicker, whiteColorPicker, lightMapZone, lightMapCanvas,
+    inputFilename, processStatus, marginInput, marginValue
 } = elements;
-const ctxInput = canvas.getContext('2d');
+const viewport = new CanvasViewport(canvasViewport, canvas, overlayCanvas, cursorCanvas);
+viewport.attachPan();
+const overlayContext = viewport.getOverlayContext();
+const maskTool = new MaskTool({
+    getPosition: (event) => viewport.imagePointFromEvent(event),
+    getRadius: () => getBrushRadius(),
+    paint: (from, to) => paintMaskStroke(from, to),
+    onChange: () => renderMaskEditView()
+});
+const referenceTool = new ReferenceTool({
+    getPosition: (event) => viewport.imagePointFromEvent(event),
+    getRadius: () => getReferenceRadius(),
+    points: referencePoints,
+    getType: () => referencePointType,
+    onChange: () => {
+        renderMaskEditView();
+        syncUi();
+    }
+});
+const geometryTool = new GeometryTool({
+    getPosition: (event) => viewport.imagePointFromEvent(event),
+    getHitRadius: () => Math.max(20, viewport.imageWidth / 40),
+    getPoints: () => corners,
+    isEnabled: () => state.cornersFound && !state.maskEditing,
+    onChange: () => {
+        state.curvesReady = false;
+        renderCornersOverlay(overlayCanvas, overlayContext, corners);
+        syncUi();
+    }
+});
 
+function setZoomMode(mode) {
+    viewport.setZoomMode(mode);
+    fitZoomBtn.classList.toggle('active', mode === 'fit');
+    actualZoomBtn.classList.toggle('active', mode === 'actual');
+}
+
+fitZoomBtn.addEventListener('click', () => setZoomMode('fit'));
+actualZoomBtn.addEventListener('click', () => setZoomMode('actual'));
+window.addEventListener('resize', () => {
+    if (viewport.mode === 'fit') setZoomMode('fit');
+});
+
+// Синхронизация ползунков полей
+marginInput.addEventListener('input', (e) => marginValue.value = e.target.value);
+marginValue.addEventListener('input', (e) => marginInput.value = e.target.value);
+maskBrushSize.addEventListener('input', (e) => maskBrushSizeValue.value = e.target.value);
+maskBrushSizeValue.addEventListener('input', (e) => maskBrushSize.value = e.target.value);
 function syncUi() {
-    syncUiElements(state, {
+    const hasAllReferenceTypes = ['paper', 'black', 'white'].every((type) => referencePoints.some((point) => point.type === type));
+    syncUiControls(state, {
         hasSheetMask: Boolean(sheetMask),
         hasLightMap: Boolean(lightMap),
+        paperMode,
+        hasAllReferenceTypes,
         canSave: Boolean(outputImageDataUrl)
     });
 }
@@ -52,7 +107,6 @@ function syncUi() {
 function resetGeometryState() {
     corners = [];
     edgePoints = [];
-    dragIdx = -1;
     state.cornersChecked = false;
     state.cornersFound = false;
     state.curvesReady = false;
@@ -64,10 +118,17 @@ function setMaskPaintMode(mode) {
     maskEraseBtn.classList.toggle('active', maskPaintMode === 'erase');
 }
 
-function setReferencePointEditing(enabled) {
+function setReferencePointEditing(enabled, type = referencePointType) {
     referencePointEditing = enabled;
-    addReferencePointBtn.classList.toggle('reference-active', enabled);
-    addReferencePointBtn.textContent = enabled ? 'Добавление точек: включено' : 'Добавить эталонную точку';
+    referencePointType = type;
+    const buttons = [
+        [addReferencePointBtn, 'paper'],
+        [addBlackReferencePointBtn, 'black'],
+        [addWhiteReferencePointBtn, 'white']
+    ];
+    buttons.forEach(([button, buttonType]) => {
+        button.classList.toggle('reference-active', enabled && buttonType === type);
+    });
 }
 
 function clearMaskMat() {
@@ -111,26 +172,28 @@ function cancelBrightnessEditState() {
     clearMaskMat();
     clearLightMapMat();
     state.maskEditing = false;
-    maskPainting = false;
-    lastMaskPoint = null;
     setReferencePointEditing(false);
-    referencePoints = [];
-    draggedReferencePointIndex = -1;
+    referencePoints.length = 0;
     setMaskPaintMode('add');
     clearLightMapView();
 }
 
+function renderActiveOverlay() {
+    viewport.clearOverlay();
+    if (!state.maskEditing || !sheetMask) return;
+
+    renderMaskOverlay(overlayCanvas, overlayContext, sheetMask, 0.5);
+    if (paperMode === 'colored') {
+        renderReferencePoints(overlayCanvas, overlayContext, referencePoints, getReferenceRadius());
+        updateReferenceStats();
+    }
+}
+
 function renderMaskEditView() {
     if (!currentMat) return;
-    if (state.maskEditing && sheetMask) {
-        renderMaskOverlay(canvas, ctxInput, currentMat, sheetMask, 0.5);
-        renderReferencePoints();
-        updateReferenceStats();
-        renderLightMapView();
-        return;
-    }
-    clearLightMapView();
-    renderRawCanvas();
+    renderActiveOverlay();
+    renderLightMapView();
+    syncUi();
 }
 
 function getReferenceRadius() {
@@ -238,37 +301,13 @@ function updateReferenceStats() {
     const average = sum.map((value) => Math.round(value / pixelCount));
     const pointRows = pointStats.map((stats, index) => {
         const mapValue = stats.lightMap === null ? 'карта: -' : `карта: ${stats.lightMap}`;
-        return `<li>яркость: ${getBrightness(stats.rgb)}; ${mapValue}</li>`;
+        const typeLabels = { paper: 'бумага', black: 'чёрный', white: 'белый' };
+        return `<li>${typeLabels[referencePoints[index].type]}: яркость ${getBrightness(stats.rgb)}; ${mapValue}</li>`;
     }).join('');
     referenceStats.innerHTML = `
         <div class="reference-stats-summary">Точек: ${referencePoints.length}; диапазон: от ${formatRgb(minimum)} до ${formatRgb(maximum)}; среднее: ${formatRgb(average)}</div>
         <ol class="reference-stats-points">${pointRows}</ol>
     `;
-}
-
-function renderReferencePoints() {
-    const radius = getReferenceRadius();
-    ctxInput.save();
-    ctxInput.lineWidth = Math.max(2, canvas.width / 800);
-    ctxInput.strokeStyle = '#2f76d2';
-    ctxInput.fillStyle = '#2f76d2';
-
-    referencePoints.forEach((point) => {
-        ctxInput.beginPath();
-        ctxInput.arc(point.x, point.y, radius, 0, 2 * Math.PI);
-        ctxInput.stroke();
-        ctxInput.beginPath();
-        ctxInput.arc(point.x, point.y, Math.max(4, radius / 8), 0, 2 * Math.PI);
-        ctxInput.fill();
-    });
-
-    ctxInput.restore();
-}
-
-function moveDraggedReferencePoint(event) {
-    if (!currentMat || state.busy || draggedReferencePointIndex === -1) return;
-    referencePoints[draggedReferencePointIndex] = getMousePosition(canvas, event);
-    renderMaskEditView();
 }
 
 function getBrushRadius() {
@@ -305,15 +344,12 @@ function paintMaskStroke(from, to) {
 function renderRawCanvas() {
     if (!currentMat) return;
 
-    ctxInput.clearRect(0, 0, canvas.width, canvas.height);
-    cv.imshow(canvas.id, currentMat);
+    viewport.setImageMat(currentMat);
 }
 
 function setCurrentMat(nextMat) {
     if (currentMat) currentMat.delete();
     currentMat = nextMat;
-    canvas.width = currentMat.cols;
-    canvas.height = currentMat.rows;
 }
 
 function updateSaveData() {
@@ -352,54 +388,41 @@ function runStep(statusText, action) {
 }
 
 saveBtn.addEventListener('click', () => {
-    if (!outputImageDataUrl) return;
+    if (!currentMat) return;
 
     const fileStem = originalFileName.replace(/\.[^.]+$/, '') || 'image';
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.href = outputImageDataUrl;
-    downloadAnchor.download = `${fileStem}.png`;
-    downloadAnchor.click();
+    saveImageToFile(currentMat, `${fileStem}.png`);
 });
 
 // Проверка готовности OpenCV
 const checkOpenCv = setInterval(() => {
     if (typeof window.cv !== 'undefined' && window.cv.Mat) {
         clearInterval(checkOpenCv);
-        if (opencvStatus) {
-            opencvStatus.classList.add('ready');
-            opencvStatus.title = 'OpenCV готов';
-        }
+        opencvStatus.classList.add('ready');
+        opencvStatus.title = 'OpenCV загружен';
         fileInput.disabled = false;
     }
 }, 100);
 
 // Загрузка файла
-fileInput.addEventListener('change', (e) => {
+fileInput.addEventListener('change', async (e) => {
     const files = e.target.files;
     if (!files || files.length === 0 || !(files[0] instanceof Blob)) return;
     originalFileName = files[0].name || 'image';
     if (inputFilename) inputFilename.innerText = originalFileName;
 
-    const reader = new FileReader();
-    reader.onload = function(event) {
-        const img = new Image();
-        img.onload = function() {
-            canvas.width = img.width;
-            canvas.height = img.height;
-            ctxInput.drawImage(img, 0, 0);
+    try {
+        const { mat: loadedMat } = await loadImageFromFile(files[0]);
+        setCurrentMat(loadedMat);
 
-            const loadedMat = cv.imread(canvas);
-            setCurrentMat(loadedMat);
-
-            state.imageLoaded = true;
-            resetGeometryState();
-            cancelBrightnessEditState();
-            renderRawCanvas();
-            updateSaveData();
-        };
-        img.src = event.target.result;
-    };
-    reader.readAsDataURL(files[0]);
+        state.imageLoaded = true;
+        resetGeometryState();
+        cancelBrightnessEditState();
+        renderRawCanvas();
+        updateSaveData();
+    } catch (err) {
+        processStatus.innerText = `Ошибка загрузки: ${err.message || err}`;
+    }
 });
 
 findCornersBtn.addEventListener('click', () => {
@@ -418,7 +441,7 @@ findCornersBtn.addEventListener('click', () => {
             '; Перетащите зеленые кружочки';
 
         renderRawCanvas();
-        renderCornersOverlay(canvas, ctxInput, currentMat, corners);
+        renderCornersOverlay(overlayCanvas, overlayContext, corners);
     });
 });
 
@@ -449,7 +472,7 @@ findCurvedEdgesBtn.addEventListener('click', () => {
         curvedInfo.innerText = 'Отрезки означают смещения граней к ровной линии';
 
         renderRawCanvas();
-        renderCurvedEdgesOverlay(canvas, ctxInput, currentMat, corners, edgePoints);
+        renderCurvedEdgesOverlay(overlayCanvas, overlayContext, corners, edgePoints);
     });
 });
 
@@ -475,7 +498,7 @@ detectSheetMaskBtn.addEventListener('click', () => {
         clearLightMapMat();
         sheetMask = buildSheetMask(currentMat);
         state.maskEditing = true;
-        referencePoints = [];
+        referencePoints.length = 0;
         setReferencePointEditing(false);
         setMaskPaintMode('add');
         renderMaskEditView();
@@ -503,9 +526,16 @@ normalizeBrightnessBtn.addEventListener('click', () => {
         const finalMat = applyBrightnessWithLightMap(
             currentMat,
             lightMap,
-            referencePoints,
-            getReferenceRadius(),
-            parseHexColor(paperColorPicker.value)
+            {
+                mode: paperMode,
+                referencePoints,
+                referenceRadius: getReferenceRadius(),
+                targetColors: {
+                    black: parseHexColor(blackColorPicker.value),
+                    paper: parseHexColor(paperColorPicker.value),
+                    white: parseHexColor(whiteColorPicker.value)
+                }
+            }
         );
         setCurrentMat(finalMat);
         resetGeometryState();
@@ -525,25 +555,47 @@ maskEraseBtn.addEventListener('click', () => {
     setMaskPaintMode('erase');
 });
 
-addReferencePointBtn.addEventListener('click', () => {
+paperModeWhiteBtn.addEventListener('click', () => {
     if (!state.maskEditing) return;
-    setReferencePointEditing(!referencePointEditing);
+    paperMode = 'white';
+    setReferencePointEditing(false);
+    syncUi();
+    renderMaskEditView();
 });
 
-// Интерактивное управление маркерами
-canvas.addEventListener('mousedown', (e) => {
+paperModeColorBtn.addEventListener('click', () => {
+    if (!state.maskEditing) return;
+    paperMode = 'colored';
+    syncUi();
+    renderMaskEditView();
+});
+
+function toggleReferencePointEditing(type) {
+    if (!state.maskEditing || paperMode !== 'colored') return;
+    setReferencePointEditing(!(referencePointEditing && referencePointType === type), type);
+}
+
+addReferencePointBtn.addEventListener('click', () => toggleReferencePointEditing('paper'));
+addBlackReferencePointBtn.addEventListener('click', () => toggleReferencePointEditing('black'));
+addWhiteReferencePointBtn.addEventListener('click', () => toggleReferencePointEditing('white'));
+
+function updateCursor(event) {
+    if (!state.maskEditing || !sheetMask || !currentMat) {
+        viewport.clearCursor();
+        return;
+    }
+    const point = viewport.imagePointFromEvent(event);
+    const radius = paperMode === 'colored' && referencePointEditing ? getReferenceRadius() : getBrushRadius();
+    const color = paperMode === 'colored' && referencePointEditing ? '#2f76d2' : '#00ff50';
+    viewport.renderCursorCircle(point, radius, color);
+}
+
+function handlePointerDown(event) {
     if (!currentMat || state.busy) return;
 
     if (state.maskEditing && sheetMask) {
-        const pos = getMousePosition(canvas, e);
-        if (referencePointEditing) {
-            const hitRadius = getReferenceRadius();
-            draggedReferencePointIndex = referencePoints.findIndex((point) => Math.hypot(point.x - pos.x, point.y - pos.y) <= hitRadius);
-            if (draggedReferencePointIndex === -1) {
-                referencePoints.push(pos);
-                draggedReferencePointIndex = referencePoints.length - 1;
-            }
-            renderMaskEditView();
+        if (paperMode === 'colored' && referencePointEditing) {
+            referenceTool.pointerDown(event);
             return;
         }
         if (lightMap || normalizedLightMap) {
@@ -551,62 +603,42 @@ canvas.addEventListener('mousedown', (e) => {
             clearLightMapView();
             syncUi();
         }
-        maskPainting = true;
-        lastMaskPoint = pos;
-        paintMaskStroke(pos, pos);
-        renderMaskEditView();
+        maskTool.pointerDown(event);
         return;
     }
 
-    if (!currentMat || !state.cornersFound || state.busy) return;
-    const pos = getMousePosition(canvas, e);
-    const clickRadius = Math.max(20, canvas.width / 40);
-    dragIdx = corners.findIndex(p => Math.hypot(p.x - pos.x, p.y - pos.y) < clickRadius);
-});
+    if (!state.cornersFound) return;
+    geometryTool.pointerDown(event);
+}
 
-canvas.addEventListener('mousemove', (e) => {
+function handlePointerMove(event) {
     if (!currentMat || state.busy) return;
+    updateCursor(event);
 
-    if (state.maskEditing && referencePointEditing && draggedReferencePointIndex !== -1) {
-        moveDraggedReferencePoint(e);
+    if (state.maskEditing && referencePointEditing) {
+        referenceTool.pointerMove(event);
         return;
     }
 
-    if (state.maskEditing && sheetMask && maskPainting) {
-        const pos = getMousePosition(canvas, e);
-        paintMaskStroke(lastMaskPoint || pos, pos);
-        lastMaskPoint = pos;
-        renderMaskEditView();
+    if (state.maskEditing && sheetMask && maskTool.active) {
+        maskTool.pointerMove(event);
         return;
     }
 
-    if (dragIdx === -1 || !currentMat || !state.cornersFound || state.busy) return;
-    const pos = getMousePosition(canvas, e);
-    corners[dragIdx].x = pos.x;
-    corners[dragIdx].y = pos.y;
-    state.curvesReady = false;
-    renderRawCanvas();
-    renderCornersOverlay(canvas, ctxInput, currentMat, corners);
-    syncUi();
-});
+    geometryTool.pointerMove(event);
+}
 
-window.addEventListener('mousemove', (e) => {
-    if (!state.maskEditing || !referencePointEditing || draggedReferencePointIndex === -1) return;
-    moveDraggedReferencePoint(e);
-});
+function finishPointerInteraction() {
+    referenceTool.pointerUp((point) => viewport.isInsideImage(point));
+    maskTool.pointerUp();
+    geometryTool.pointerUp();
+}
 
-window.addEventListener('mouseup', () => {
-    if (draggedReferencePointIndex !== -1) {
-        const point = referencePoints[draggedReferencePointIndex];
-        if (point.x < 0 || point.x >= canvas.width || point.y < 0 || point.y >= canvas.height) {
-            referencePoints.splice(draggedReferencePointIndex, 1);
-            renderMaskEditView();
-        }
-    }
-    dragIdx = -1;
-    draggedReferencePointIndex = -1;
-    maskPainting = false;
-    lastMaskPoint = null;
+viewport.bindPointerHandlers({
+    onDown: handlePointerDown,
+    onMove: handlePointerMove,
+    onUp: finishPointerInteraction,
+    onCancel: finishPointerInteraction
 });
 
 syncUi();

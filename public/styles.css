@@ -146,6 +146,8 @@ button, .btn-file {
 .mask-edit-row button { width: auto; }
 .mask-edit-row button.active { background: #d7f4dd; border-color: #50a665; }
 .mask-edit-row button.reference-active { background: #dce8ff; border-color: #4c83d8; }
+.mask-edit-row button.reference-black { color: #fff; background: #333; border-color: #111; }
+.mask-edit-row button.reference-white { background: #fff; border-color: #444; }
 .mask-edit-row input[type="number"] { width: 55px; }
 .reference-stats { margin: 12px 0; line-height: 1.45; text-align: left; }
 .reference-stats-summary { text-align: center; }
@@ -180,12 +182,44 @@ button, .btn-file {
     height: 100vh;
     overflow: auto;
     display: flex;
+    flex-direction: column;
     align-items: flex-start;
     justify-content: center;
     padding: 20px;
 }
 
-canvas { border: 1px solid #ccc; max-width: 100%; background: #fff; height: auto; }
+.canvas-viewport {
+    position: relative;
+    flex: 1 1 auto;
+    align-self: stretch;
+    min-height: 0;
+    overflow: hidden;
+    background: #e7e7e7;
+    user-select: none;
+}
+
+.canvas-viewport.pan-ready { cursor: grab; }
+.canvas-viewport.pan-active { cursor: grabbing; }
+
+.canvas-viewport canvas {
+    position: absolute;
+    width: 0;
+    height: 0;
+    max-width: none;
+    background: #fff;
+}
+
+#overlayCanvas, #cursorCanvas { pointer-events: none; background: transparent; }
+
+.viewport-controls {
+    align-self: flex-end;
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.viewport-controls button { width: auto; padding: 6px 12px; font-size: 14px; }
+.viewport-controls button.active { background: #dce8ff; border-color: #4c83d8; }
 
 @media (max-width: 980px) {
     body {
