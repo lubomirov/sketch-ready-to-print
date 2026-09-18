@@ -201,7 +201,7 @@ button, .btn-file {
 .canvas-viewport.pan-ready { cursor: grab; }
 .canvas-viewport.pan-active { cursor: grabbing; }
 
-.canvas-viewport canvas {
+#canvas, #overlayCanvas, #cursorCanvas {
     position: absolute;
     width: 0;
     height: 0;
@@ -216,10 +216,72 @@ button, .btn-file {
     display: flex;
     gap: 6px;
     margin-top: 8px;
+    align-items: center;
+}
+
+.viewport-hint {
+    align-self: flex-end;
+    font-size: 12px;
+    color: #666;
+    margin-top: 4px;
+    user-select: none;
 }
 
 .viewport-controls button { width: auto; padding: 6px 12px; font-size: 14px; }
 .viewport-controls button.active { background: #dce8ff; border-color: #4c83d8; }
+
+#histogramCanvas {
+    display: block;
+    width: 100%;
+    height: 160px;
+    border: 1px solid #ddd;
+    background: #f8f8f8;
+}
+
+.histogram-stats {
+    font-size: 11px;
+    line-height: 1.5;
+    color: #333;
+    margin-top: 8px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px 10px;
+}
+
+.histogram-stats .histogram-stat {
+    background: rgba(0, 0, 0, 0.02);
+    padding: 4px 6px;
+}
+
+.brightness-histogram {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.brightness-histogram #histogramCanvas {
+    width: 100%;
+    height: 160px;
+}
+
+.brightness-field {
+    display: grid;
+    grid-template-columns: 1fr 76px;
+    gap: 6px 10px;
+    align-items: center;
+    text-align: left;
+}
+
+.brightness-field input {
+    width: 76px;
+}
+
+.brightness-field small {
+    grid-column: 1 / -1;
+    color: #666;
+    font-size: 12px;
+    margin-top: -4px;
+}
 
 @media (max-width: 980px) {
     body {

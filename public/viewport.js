@@ -11,6 +11,7 @@ export class CanvasViewport {
         this.imageWidth = 0;
         this.imageHeight = 0;
         this.panState = null;
+        this.spacePressed = false;
         this.resizeObserver = new ResizeObserver(() => {
             if (this.mode === 'fit' && this.imageWidth && this.imageHeight) {
                 this.setZoomMode('fit');
@@ -121,7 +122,7 @@ export class CanvasViewport {
 
     bindPointerHandlers({ onDown, onMove, onUp, onCancel }) {
         this.container.addEventListener('pointerdown', (event) => {
-            if (event.button === 1 || event.altKey) return;
+            if (event.button === 1 || this.spacePressed) return;
             this.container.setPointerCapture(event.pointerId);
             onDown(event);
         });
@@ -139,18 +140,26 @@ export class CanvasViewport {
             this.container.classList.toggle('pan-ready', ready);
         };
 
+        const isSpaceKey = (event) => event.code === 'Space' || event.key === ' ' || event.key === 'Spacebar';
+
         window.addEventListener('keydown', (event) => {
-            if (event.key === 'Alt') setPanReady(true);
+            if (!isSpaceKey(event)) return;
+            this.spacePressed = true;
+            event.preventDefault();
+            setPanReady(true);
         });
         window.addEventListener('keyup', (event) => {
-            if (event.key === 'Alt' && !this.panState) setPanReady(false);
+            if (!isSpaceKey(event)) return;
+            this.spacePressed = false;
+            if (!this.panState) setPanReady(false);
         });
         window.addEventListener('blur', () => {
+            this.spacePressed = false;
             if (!this.panState) setPanReady(false);
         });
 
         this.container.addEventListener('pointerdown', (event) => {
-            if (event.button !== 1 && !event.altKey) return;
+            if (event.button !== 1 && !this.spacePressed) return;
             this.panState = { x: event.clientX, y: event.clientY, pointerId: event.pointerId };
             this.container.classList.remove('pan-ready');
             this.container.classList.add('pan-active');
@@ -165,7 +174,7 @@ export class CanvasViewport {
         this.container.addEventListener('pointerup', (event) => {
             this.panState = null;
             this.container.classList.remove('pan-active');
-            setPanReady(event.altKey);
+            setPanReady(this.spacePressed);
         });
         this.container.addEventListener('pointercancel', () => {
             this.panState = null;

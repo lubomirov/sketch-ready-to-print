@@ -103,8 +103,25 @@ function sampleEdgePoints(contourPts, corners, n) {
     });
 }
 
+function prepareFor8BitCv(src) {
+    if (!src || src.isDeleted()) return src;
+    if (src.type() === cv.CV_8UC1 || src.type() === cv.CV_8UC3 || src.type() === cv.CV_8UC4) return src;
+
+    const targetType = src.channels() === 1
+        ? cv.CV_8UC1
+        : src.channels() === 3
+            ? cv.CV_8UC3
+            : cv.CV_8UC4;
+
+    const converted = new cv.Mat();
+    src.convertTo(converted, targetType, 255);
+    return converted;
+}
+
 // Внутренний детектор геометрии листа: возвращает углы и точки кривизны
 function detectSheetGeometry(src, imgWidth, imgHeight) {
+    const sourceForGeometry = prepareFor8BitCv(src);
+
     let gray = new cv.Mat();
     let thresh = new cv.Mat();
     let someContours = new cv.MatVector();
@@ -113,7 +130,7 @@ function detectSheetGeometry(src, imgWidth, imgHeight) {
     let edgePoints = [[], [], [], []];
     let found = false;
 
-    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
+    cv.cvtColor(sourceForGeometry, gray, cv.COLOR_RGBA2GRAY, 0);
     
     // Порог Оцу идеально отделяет белый лист от черного/темного фона
     cv.threshold(gray, thresh, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
@@ -164,6 +181,7 @@ function detectSheetGeometry(src, imgWidth, imgHeight) {
     }
 
     gray.delete(); thresh.delete(); someContours.delete(); hierarchy.delete();
+    if (sourceForGeometry !== src) sourceForGeometry.delete();
     return { corners, edgePoints, found };
 }
 

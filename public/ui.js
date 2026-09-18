@@ -1,4 +1,4 @@
-export function initTabs() {
+export function initTabs({ onChange } = {}) {
     const tabButtons = Array.from(document.querySelectorAll('.tab-btn'));
     const tabPanes = Array.from(document.querySelectorAll('.tab-pane'));
     if (tabButtons.length === 0 || tabPanes.length === 0) return;
@@ -13,6 +13,7 @@ export function initTabs() {
         tabPanes.forEach((pane) => {
             pane.classList.toggle('active', pane.id === tabId);
         });
+        if (onChange) onChange(tabId);
     }
 
     tabButtons.forEach((btn) => {
@@ -28,6 +29,8 @@ export function createUi({ onReferenceRadiusInput }) {
         cursorCanvas: document.getElementById('cursorCanvas'),
         fitZoomBtn: document.getElementById('fitZoomBtn'),
         actualZoomBtn: document.getElementById('actualZoomBtn'),
+        histogramCanvas: document.getElementById('histogramCanvas'),
+        histogramStats: document.getElementById('histogramStats'),
         opencvStatus: document.getElementById('opencvStatus'),
         fileInput: document.getElementById('fileInput'),
         findCornersBtn: document.getElementById('findCornersBtn'),
@@ -39,7 +42,12 @@ export function createUi({ onReferenceRadiusInput }) {
         fixCurvedEdgesBtn: document.getElementById('fixCurvedEdgesBtn'),
         detectSheetMaskBtn: document.getElementById('detectSheetMaskBtn'),
         recalcLightMapBtn: document.getElementById('recalcLightMapBtn'),
-        normalizeBrightnessBtn: document.getElementById('normalizeBrightnessBtn'),
+        applyLightMapBtn: document.getElementById('applyLightMapBtn'),
+        blackPointInput: document.getElementById('blackPointInput'),
+        whitePointInput: document.getElementById('whitePointInput'),
+        blackPointHint: document.getElementById('blackPointHint'),
+        whitePointHint: document.getElementById('whitePointHint'),
+        stretchBrightnessBtn: document.getElementById('stretchBrightnessBtn'),
         saveBtn: document.getElementById('saveBtn'),
         editMask: document.getElementById('editMask'),
         maskAddBtn: document.getElementById('maskAddBtn'),
@@ -71,14 +79,20 @@ export function createUi({ onReferenceRadiusInput }) {
         referenceRadius, referenceRadiusValue
     } = elements;
 
-    marginInput.addEventListener('input', (event) => marginValue.value = event.target.value);
-    marginValue.addEventListener('input', (event) => marginInput.value = event.target.value);
-    maskBrushSize.addEventListener('input', (event) => maskBrushSizeValue.value = event.target.value);
-    maskBrushSizeValue.addEventListener('input', (event) => maskBrushSize.value = event.target.value);
-    referenceRadius.addEventListener('input', (event) => referenceRadiusValue.value = event.target.value);
-    referenceRadiusValue.addEventListener('input', (event) => referenceRadius.value = event.target.value);
-    referenceRadius.addEventListener('input', onReferenceRadiusInput);
-    referenceRadiusValue.addEventListener('input', onReferenceRadiusInput);
+    if (marginInput && marginValue) {
+        marginInput.addEventListener('input', (event) => marginValue.value = event.target.value);
+        marginValue.addEventListener('input', (event) => marginInput.value = event.target.value);
+    }
+    if (maskBrushSize && maskBrushSizeValue) {
+        maskBrushSize.addEventListener('input', (event) => maskBrushSizeValue.value = event.target.value);
+        maskBrushSizeValue.addEventListener('input', (event) => maskBrushSize.value = event.target.value);
+    }
+    if (referenceRadius && referenceRadiusValue) {
+        referenceRadius.addEventListener('input', (event) => referenceRadiusValue.value = event.target.value);
+        referenceRadiusValue.addEventListener('input', (event) => referenceRadius.value = event.target.value);
+        referenceRadius.addEventListener('input', onReferenceRadiusInput);
+        referenceRadiusValue.addEventListener('input', onReferenceRadiusInput);
+    }
 
     function setInactive(element, inactive) {
         if (!element) return;
@@ -90,7 +104,7 @@ export function createUi({ onReferenceRadiusInput }) {
         const {
             findCornersBtn, cornersStatus, fixGeometryBtn, geometryControls,
             findCurvedEdgesBtn, curvedInfo, fixCurvedEdgesBtn, detectSheetMaskBtn,
-            recalcLightMapBtn, normalizeBrightnessBtn, editMask, lightMapZone,
+            recalcLightMapBtn, applyLightMapBtn, stretchBrightnessBtn, editMask, lightMapZone,
             saveBtn, maskAddBtn, maskEraseBtn, maskBrushSize, maskBrushSizeValue,
             paperModeWhiteBtn, paperModeColorBtn, coloredPaperControls,
             addReferencePointBtn, addBlackReferencePointBtn, addWhiteReferencePointBtn,
@@ -106,13 +120,10 @@ export function createUi({ onReferenceRadiusInput }) {
         setInactive(fixCurvedEdgesBtn, !state.imageLoaded || !state.curvesReady || state.busy);
         setInactive(detectSheetMaskBtn, !state.imageLoaded || state.busy);
         setInactive(recalcLightMapBtn, !state.imageLoaded || !hasSheetMask || !state.maskEditing || state.busy);
+        setInactive(applyLightMapBtn, !state.imageLoaded || !hasLightMap || state.busy);
 
         const isWhiteMode = paperMode === 'white';
-        const canNormalize = isWhiteMode
-            ? (state.imageLoaded && hasLightMap && !state.busy)
-            : (state.imageLoaded && hasLightMap && hasAllReferenceTypes && !state.busy);
-
-        setInactive(normalizeBrightnessBtn, !canNormalize);
+        setInactive(stretchBrightnessBtn, !state.imageLoaded || state.busy);
         setInactive(editMask, !state.maskEditing);
         setInactive(lightMapZone, !state.maskEditing);
         setInactive(coloredPaperControls, isWhiteMode || !state.maskEditing);

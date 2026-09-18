@@ -1,10 +1,11 @@
 import { findCorners, findCurvedEdges, rectifyCurvedEdges, transformPerspective } from './geometry.js';
-import { applyBrightnessWithLightMap, buildNormalizedLightMap, buildSheetMask } from './filters.js';
+import { applyBrightnessWithLightMap, buildNormalizedLightMap, buildSheetMask } from './lightmap.js';
 import { createUi, initTabs } from './ui.js';
 import { renderCornersOverlay, renderCurvedEdgesOverlay, renderMaskOverlay, renderReferencePoints } from './renderers.js';
-import { loadImageFromFile, saveImageToFile, saveLightmapToFile, loadLightmapFromFile } from './file-io.js';
+import { loadImageFromFile, saveImageToFile, saveLightmapToFile, loadLightmapFromFile, normalizeToFloatWorkingMat, toDisplayUint8Mat } from './file-io.js';
 import { CanvasViewport } from './viewport.js';
 import { GeometryTool, MaskTool, ReferenceTool } from './tools.js';
+import { computeHistogram, renderHistogram, stretchBrightness } from './brightness.js';
 
 let currentMat = null;
 let corners = [];
@@ -19,6 +20,8 @@ let referencePointType = 'paper';
 let paperMode = 'white';
 let originalFileName = 'image';
 let outputImageDataUrl = '';
+let brightnessHistogram = null;
+let maskRenderFrame = 0;
 
 const state = {
     imageLoaded: false,
@@ -31,14 +34,16 @@ const state = {
 
 const { elements, syncUi: syncUiControls } = createUi({
     onReferenceRadiusInput: () => {
-        if (state.maskEditing) renderMaskEditView();
+        if (state.maskEditing) scheduleMaskEditView();
     }
 });
 const {
     canvasViewport, overlayCanvas, cursorCanvas, fitZoomBtn, actualZoomBtn,
+    histogramCanvas, histogramStats, blackPointInput, whitePointInput, blackPointHint, whitePointHint,
+    stretchBrightnessBtn,
     canvas, opencvStatus, fileInput, findCornersBtn, cornersStatus, fixGeometryBtn,
     geometryControls, findCurvedEdgesBtn, curvedInfo, fixCurvedEdgesBtn, detectSheetMaskBtn,
-    recalcLightMapBtn, normalizeBrightnessBtn, saveBtn, editMask, maskAddBtn, maskEraseBtn,
+    recalcLightMapBtn, applyLightMapBtn, saveBtn, editMask, maskAddBtn, maskEraseBtn,
     maskBrushSize, maskBrushSizeValue, paperModeWhiteBtn, paperModeColorBtn,
     addReferencePointBtn, addBlackReferencePointBtn, addWhiteReferencePointBtn,
     referenceRadius, referenceRadiusValue, referenceStats,
@@ -52,7 +57,7 @@ const maskTool = new MaskTool({
     getPosition: (event) => viewport.imagePointFromEvent(event),
     getRadius: () => getBrushRadius(),
     paint: (from, to) => paintMaskStroke(from, to),
-    onChange: () => renderMaskEditView()
+    onChange: scheduleMaskEditView
 });
 const referenceTool = new ReferenceTool({
     getPosition: (event) => viewport.imagePointFromEvent(event),
@@ -60,7 +65,7 @@ const referenceTool = new ReferenceTool({
     points: referencePoints,
     getType: () => referencePointType,
     onChange: () => {
-        renderMaskEditView();
+        scheduleMaskEditView();
         syncUi();
     }
 });
@@ -84,8 +89,10 @@ function setZoomMode(mode) {
 
 fitZoomBtn.addEventListener('click', () => setZoomMode('fit'));
 actualZoomBtn.addEventListener('click', () => setZoomMode('actual'));
+
 window.addEventListener('resize', () => {
     if (viewport.mode === 'fit') setZoomMode('fit');
+    if (currentMat) updateHistogramView();
 });
 
 // Синхронизация ползунков полей
@@ -192,8 +199,38 @@ function renderActiveOverlay() {
 function renderMaskEditView() {
     if (!currentMat) return;
     renderActiveOverlay();
-    renderLightMapView();
     syncUi();
+}
+
+function scheduleMaskEditView() {
+    if (maskRenderFrame) return;
+    maskRenderFrame = requestAnimationFrame(() => {
+        maskRenderFrame = 0;
+        renderMaskEditView();
+    });
+}
+
+function updateHistogramView() {
+    if (!currentMat || !histogramCanvas || !document.getElementById('tab-4')?.classList.contains('active')) return;
+    brightnessHistogram = computeHistogram(currentMat);
+    renderHistogram(histogramCanvas, brightnessHistogram);
+    blackPointInput.value = brightnessHistogram.min;
+    whitePointInput.value = brightnessHistogram.max;
+    blackPointHint.textContent = `Хвост: ${brightnessHistogram.lowCut}`;
+    whitePointHint.textContent = `Хвост: ${brightnessHistogram.highCut}`;
+
+    histogramStats.innerHTML = brightnessHistogram.stats.map((stats, index) => {
+        const label = brightnessHistogram.channelNames[index];
+        return `
+            <div class="histogram-stat">
+                <strong>${label}</strong><br>
+                min ${stats.min}<br>
+                max ${stats.max}<br>
+                mean ${Math.round(stats.mean)}<br>
+                tail ${stats.lowCut}..${stats.highCut}
+            </div>
+        `;
+    }).join('');
 }
 
 function getReferenceRadius() {
@@ -274,6 +311,9 @@ function updateReferenceStats() {
     const maximum = [0, 0, 0];
     const sum = [0, 0, 0];
     let pixelCount = 0;
+    const currentData = currentMat.depth() === cv.CV_32F || currentMat.depth() === cv.CV_64F
+        ? currentMat.data32F
+        : currentMat.data;
 
     const pointStats = referencePoints.map((point) => {
         const pointSum = [0, 0, 0];
@@ -282,7 +322,7 @@ function updateReferenceStats() {
         getPixelsInReferenceCircle(point, radius, (x, y) => {
             const pixelIndex = (y * currentMat.cols + x) * 4;
             for (let channel = 0; channel < 3; channel++) {
-                const value = currentMat.data[pixelIndex + channel];
+                const value = currentData[pixelIndex + channel] * (currentMat.depth() === cv.CV_32F || currentMat.depth() === cv.CV_64F ? 255 : 1);
                 minimum[channel] = Math.min(minimum[channel], value);
                 maximum[channel] = Math.max(maximum[channel], value);
                 sum[channel] += value;
@@ -344,12 +384,21 @@ function paintMaskStroke(from, to) {
 function renderRawCanvas() {
     if (!currentMat) return;
 
-    viewport.setImageMat(currentMat);
+    const displayMat = toDisplayUint8Mat(currentMat);
+    viewport.setImageMat(displayMat);
+    if (displayMat !== currentMat) displayMat.delete();
 }
 
 function setCurrentMat(nextMat) {
-    if (currentMat) currentMat.delete();
-    currentMat = nextMat;
+    if (currentMat && currentMat !== nextMat) currentMat.delete();
+    if (!nextMat) {
+        currentMat = null;
+        return;
+    }
+    const floatMat = normalizeToFloatWorkingMat(nextMat);
+    if (floatMat !== nextMat) nextMat.delete();
+    currentMat = floatMat;
+    updateHistogramView();
 }
 
 function updateSaveData() {
@@ -362,9 +411,23 @@ function updateSaveData() {
     const exportCanvas = document.createElement('canvas');
     exportCanvas.width = currentMat.cols;
     exportCanvas.height = currentMat.rows;
-    cv.imshow(exportCanvas, currentMat);
+    const displayMat = toDisplayUint8Mat(currentMat);
+    cv.imshow(exportCanvas, displayMat);
+    if (displayMat !== currentMat) displayMat.delete();
     outputImageDataUrl = exportCanvas.toDataURL('image/png');
     syncUi();
+}
+
+// Исключения OpenCV прилетают из wasm как числовой указатель — разворачиваем в текст.
+function describeError(error) {
+    if (typeof error === 'number' && typeof cv.exceptionFromPtr === 'function') {
+        try {
+            return cv.exceptionFromPtr(error).msg;
+        } catch {
+            return `OpenCV exception ${error}`;
+        }
+    }
+    return error && error.message ? error.message : String(error);
 }
 
 function runStep(statusText, action) {
@@ -379,7 +442,8 @@ function runStep(statusText, action) {
             action();
             processStatus.innerText = 'Готово!';
         } catch (error) {
-            processStatus.innerText = `Ошибка: ${error.message || error}`;
+            console.error(error);
+            processStatus.innerText = `Ошибка: ${describeError(error)}`;
         } finally {
             state.busy = false;
             syncUi();
@@ -518,12 +582,11 @@ recalcLightMapBtn.addEventListener('click', () => {
     });
 });
 
-// Клик по кнопке "Нормализовать яркость"
-normalizeBrightnessBtn.addEventListener('click', () => {
+applyLightMapBtn.addEventListener('click', () => {
     if (!currentMat || !lightMap) return;
 
-    runStep('Выравнивание яркости...', () => {
-        const finalMat = applyBrightnessWithLightMap(
+    runStep('Коррекция по карте освещенности...', () => {
+        const correctedMat = applyBrightnessWithLightMap(
             currentMat,
             lightMap,
             {
@@ -537,9 +600,20 @@ normalizeBrightnessBtn.addEventListener('click', () => {
                 }
             }
         );
-        setCurrentMat(finalMat);
+        setCurrentMat(correctedMat);
         resetGeometryState();
         cancelBrightnessEditState();
+        renderRawCanvas();
+        updateSaveData();
+    });
+});
+
+// Клик по кнопке "Нормализовать яркость"
+stretchBrightnessBtn.addEventListener('click', () => {
+    if (!currentMat) return;
+    runStep('Коррекция яркости...', () => {
+        const correctedMat = stretchBrightness(currentMat, blackPointInput.value, whitePointInput.value);
+        setCurrentMat(correctedMat);
         renderRawCanvas();
         updateSaveData();
     });
@@ -642,4 +716,8 @@ viewport.bindPointerHandlers({
 });
 
 syncUi();
-initTabs();
+initTabs({
+    onChange: (tabId) => {
+        if (tabId === 'tab-4') updateHistogramView();
+    }
+});

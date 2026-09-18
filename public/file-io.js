@@ -7,6 +7,40 @@
  * @param {File|Blob} file
  * @returns {Promise<{ mat: cv.Mat, fileName: string, width: number, height: number }>}
  */
+export function normalizeToFloatWorkingMat(mat) {
+    if (!mat || mat.isDeleted()) {
+        throw new Error('Matrix is empty or deleted');
+    }
+
+    if (mat.depth() === cv.CV_32F || mat.depth() === cv.CV_64F) {
+        return mat;
+    }
+
+    const floatMat = new cv.Mat();
+    mat.convertTo(floatMat, cv.CV_32F, 1 / 255);
+    return floatMat;
+}
+
+export function toDisplayUint8Mat(mat) {
+    if (!mat || mat.isDeleted()) {
+        throw new Error('Matrix is empty or deleted');
+    }
+
+    if (mat.depth() === cv.CV_8U) {
+        return mat;
+    }
+
+    const displayMat = new cv.Mat();
+    const targetType = mat.channels() === 1
+        ? cv.CV_8UC1
+        : mat.channels() === 3
+            ? cv.CV_8UC3
+            : cv.CV_8UC4;
+
+    mat.convertTo(displayMat, targetType, 255);
+    return displayMat;
+}
+
 export async function loadImageFromFile(file) {
     if (!file || !(file instanceof Blob)) {
         throw new Error('Incorrect file for loading');
@@ -26,8 +60,10 @@ export async function loadImageFromFile(file) {
                 ctx.drawImage(img, 0, 0);
 
                 const mat = cv.imread(offscreenCanvas);
+                const workingMat = normalizeToFloatWorkingMat(mat);
+                if (workingMat !== mat) mat.delete();
                 resolve({
-                    mat,
+                    mat: workingMat,
                     fileName,
                     width: img.width,
                     height: img.height
@@ -58,13 +94,17 @@ export function saveImageToFile(mat, fileName = 'result.png') {
         throw new Error('Matrix is empty or deleted');
     }
 
+    const exportMat = toDisplayUint8Mat(mat);
+
     const offscreenCanvas = document.createElement('canvas');
-    offscreenCanvas.width = mat.cols;
-    offscreenCanvas.height = mat.rows;
-    cv.imshow(offscreenCanvas, mat);
+    offscreenCanvas.width = exportMat.cols;
+    offscreenCanvas.height = exportMat.rows;
+    cv.imshow(offscreenCanvas, exportMat);
 
     const dataUrl = offscreenCanvas.toDataURL('image/png');
     triggerDownload(dataUrl, fileName);
+
+    if (exportMat !== mat) exportMat.delete();
 }
 
 /**
@@ -128,7 +168,9 @@ export function saveLightmapToFile(lightMapMat, sheetMaskMat, fileName = 'lightm
  * @returns {Promise<{ lightMap: cv.Mat, validMask: cv.Mat, width: number, height: number }>}
  */
 export async function loadLightmapFromFile(file, targetSize) {
-    const { mat: rgbaMat, width, height } = await loadImageFromFile(file);
+    const { mat: floatMat, width, height } = await loadImageFromFile(file);
+    const rgbaMat = toDisplayUint8Mat(floatMat);
+    if (rgbaMat !== floatMat) floatMat.delete();
 
     const finalWidth = targetSize ? targetSize.width : width;
     const finalHeight = targetSize ? targetSize.height : height;
