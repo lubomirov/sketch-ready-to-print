@@ -33,11 +33,11 @@ export function createUi({ onReferenceRadiusInput }) {
         histogramStats: document.getElementById('histogramStats'),
         opencvStatus: document.getElementById('opencvStatus'),
         fileInput: document.getElementById('fileInput'),
-        findCornersBtn: document.getElementById('findCornersBtn'),
+        rotateLeftBtn: document.getElementById('rotateLeftBtn'),
+        rotateRightBtn: document.getElementById('rotateRightBtn'),
         cornersStatus: document.getElementById('cornersStatus'),
         fixGeometryBtn: document.getElementById('fixGeometryBtn'),
         geometryControls: document.getElementById('geometryControls'),
-        findCurvedEdgesBtn: document.getElementById('findCurvedEdgesBtn'),
         curvedInfo: document.getElementById('curvedInfo'),
         fixCurvedEdgesBtn: document.getElementById('fixCurvedEdgesBtn'),
         detectSheetMaskBtn: document.getElementById('detectSheetMaskBtn'),
@@ -102,20 +102,21 @@ export function createUi({ onReferenceRadiusInput }) {
 
     function syncUi(state, { hasSheetMask, hasLightMap, paperMode = 'white', hasAllReferenceTypes, canSave }) {
         const {
-            findCornersBtn, cornersStatus, fixGeometryBtn, geometryControls,
-            findCurvedEdgesBtn, curvedInfo, fixCurvedEdgesBtn, detectSheetMaskBtn,
+            cornersStatus, fixGeometryBtn, geometryControls,
+            curvedInfo, fixCurvedEdgesBtn, detectSheetMaskBtn,
             recalcLightMapBtn, applyLightMapBtn, stretchBrightnessBtn, editMask, lightMapZone,
             saveBtn, maskAddBtn, maskEraseBtn, maskBrushSize, maskBrushSizeValue,
             paperModeWhiteBtn, paperModeColorBtn, coloredPaperControls,
             addReferencePointBtn, addBlackReferencePointBtn, addWhiteReferencePointBtn,
-            referenceRadius, referenceRadiusValue, blackColorPicker, paperColorPicker, whiteColorPicker
+            referenceRadius, referenceRadiusValue, blackColorPicker, paperColorPicker, whiteColorPicker,
+            rotateLeftBtn, rotateRightBtn
         } = elements;
 
-        setInactive(findCornersBtn, !state.imageLoaded || state.busy);
+        setInactive(rotateLeftBtn, !state.imageLoaded || state.busy);
+        setInactive(rotateRightBtn, !state.imageLoaded || state.busy);
         setInactive(cornersStatus, !state.cornersChecked);
         setInactive(fixGeometryBtn, !state.imageLoaded || !state.cornersFound || state.busy);
         setInactive(geometryControls, !state.cornersFound);
-        setInactive(findCurvedEdgesBtn, !state.imageLoaded || state.busy);
         setInactive(curvedInfo, !state.curvesReady);
         setInactive(fixCurvedEdgesBtn, !state.imageLoaded || !state.curvesReady || state.busy);
         setInactive(detectSheetMaskBtn, !state.imageLoaded || state.busy);

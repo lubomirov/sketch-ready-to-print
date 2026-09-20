@@ -1,3 +1,5 @@
+import { prepareFor8BitCv } from './mat-utils.js';
+
 const EDGE_SAMPLES = 12;
 const CURVE_GRID_COLS = 10;
 const CURVE_GRID_ROWS = 15;
@@ -103,21 +105,6 @@ function sampleEdgePoints(contourPts, corners, n) {
     });
 }
 
-function prepareFor8BitCv(src) {
-    if (!src || src.isDeleted()) return src;
-    if (src.type() === cv.CV_8UC1 || src.type() === cv.CV_8UC3 || src.type() === cv.CV_8UC4) return src;
-
-    const targetType = src.channels() === 1
-        ? cv.CV_8UC1
-        : src.channels() === 3
-            ? cv.CV_8UC3
-            : cv.CV_8UC4;
-
-    const converted = new cv.Mat();
-    src.convertTo(converted, targetType, 255);
-    return converted;
-}
-
 // Внутренний детектор геометрии листа: возвращает углы и точки кривизны
 function detectSheetGeometry(src, imgWidth, imgHeight) {
     const sourceForGeometry = prepareFor8BitCv(src);
@@ -139,10 +126,13 @@ function detectSheetGeometry(src, imgWidth, imgHeight) {
     cv.findContours(thresh, someContours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
     // Находим самый большой контур по площади, который будет кандидатом на лист
+    // MatVector.get() создаёт новый cv.Mat на каждый вызов — его нужно удалять вручную.
     let maxArea = 0;
     let maxContourIdx = -1;
     for (let i = 0; i < someContours.size(); ++i) {
-        let area = cv.contourArea(someContours.get(i));
+        const candidate = someContours.get(i);
+        const area = cv.contourArea(candidate);
+        candidate.delete();
         if (area > maxArea) {
             maxArea = area;
             maxContourIdx = i;
@@ -169,6 +159,7 @@ function detectSheetGeometry(src, imgWidth, imgHeight) {
         edgePoints = sampleEdgePoints(contourPts, corners, EDGE_SAMPLES);
     }
     simplified.delete();
+    contour.delete();
 
     // Если автоматика не сработала — строим рамку по умолчанию с отступами
     if (corners.length !== 4) {

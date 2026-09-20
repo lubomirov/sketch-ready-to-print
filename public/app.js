@@ -2,10 +2,12 @@ import { findCorners, findCurvedEdges, rectifyCurvedEdges, transformPerspective 
 import { applyBrightnessWithLightMap, buildNormalizedLightMap, buildSheetMask } from './lightmap.js';
 import { createUi, initTabs } from './ui.js';
 import { renderCornersOverlay, renderCurvedEdgesOverlay, renderMaskOverlay, renderReferencePoints } from './renderers.js';
-import { loadImageFromFile, saveImageToFile, saveLightmapToFile, loadLightmapFromFile, normalizeToFloatWorkingMat, toDisplayUint8Mat } from './file-io.js';
+import { loadImageFromFile, saveImageToFile, normalizeToFloatWorkingMat, toDisplayUint8Mat } from './file-io.js';
 import { CanvasViewport } from './viewport.js';
 import { GeometryTool, MaskTool, ReferenceTool } from './tools.js';
 import { computeHistogram, renderHistogram, stretchBrightness } from './brightness.js';
+import { isFloatMat } from './mat-utils.js';
+import { rotateMat } from './rotate.js';
 
 let currentMat = null;
 let corners = [];
@@ -41,8 +43,8 @@ const {
     canvasViewport, overlayCanvas, cursorCanvas, fitZoomBtn, actualZoomBtn,
     histogramCanvas, histogramStats, blackPointInput, whitePointInput, blackPointHint, whitePointHint,
     stretchBrightnessBtn,
-    canvas, opencvStatus, fileInput, findCornersBtn, cornersStatus, fixGeometryBtn,
-    geometryControls, findCurvedEdgesBtn, curvedInfo, fixCurvedEdgesBtn, detectSheetMaskBtn,
+    canvas, opencvStatus, fileInput, rotateLeftBtn, rotateRightBtn, cornersStatus, fixGeometryBtn,
+    geometryControls, curvedInfo, fixCurvedEdgesBtn, detectSheetMaskBtn,
     recalcLightMapBtn, applyLightMapBtn, saveBtn, editMask, maskAddBtn, maskEraseBtn,
     maskBrushSize, maskBrushSizeValue, paperModeWhiteBtn, paperModeColorBtn,
     addReferencePointBtn, addBlackReferencePointBtn, addWhiteReferencePointBtn,
@@ -211,7 +213,7 @@ function scheduleMaskEditView() {
 }
 
 function updateHistogramView() {
-    if (!currentMat || !histogramCanvas || !document.getElementById('tab-4')?.classList.contains('active')) return;
+    if (!currentMat || !histogramCanvas || !document.getElementById('tab-5')?.classList.contains('active')) return;
     brightnessHistogram = computeHistogram(currentMat);
     renderHistogram(histogramCanvas, brightnessHistogram);
     blackPointInput.value = brightnessHistogram.min;
@@ -311,9 +313,7 @@ function updateReferenceStats() {
     const maximum = [0, 0, 0];
     const sum = [0, 0, 0];
     let pixelCount = 0;
-    const currentData = currentMat.depth() === cv.CV_32F || currentMat.depth() === cv.CV_64F
-        ? currentMat.data32F
-        : currentMat.data;
+    const currentData = isFloatMat(currentMat) ? currentMat.data32F : currentMat.data;
 
     const pointStats = referencePoints.map((point) => {
         const pointSum = [0, 0, 0];
@@ -322,7 +322,7 @@ function updateReferenceStats() {
         getPixelsInReferenceCircle(point, radius, (x, y) => {
             const pixelIndex = (y * currentMat.cols + x) * 4;
             for (let channel = 0; channel < 3; channel++) {
-                const value = currentData[pixelIndex + channel] * (currentMat.depth() === cv.CV_32F || currentMat.depth() === cv.CV_64F ? 255 : 1);
+                const value = currentData[pixelIndex + channel] * (isFloatMat(currentMat) ? 255 : 1);
                 minimum[channel] = Math.min(minimum[channel], value);
                 maximum[channel] = Math.max(maximum[channel], value);
                 sum[channel] += value;
@@ -489,8 +489,24 @@ fileInput.addEventListener('change', async (e) => {
     }
 });
 
-findCornersBtn.addEventListener('click', () => {
+function rotateCurrentMat(direction) {
     if (!currentMat) return;
+    cancelBrightnessEditState();
+
+    runStep('Поворот изображения...', () => {
+        const rotatedMat = rotateMat(currentMat, direction);
+        setCurrentMat(rotatedMat);
+        resetGeometryState();
+        renderRawCanvas();
+        updateSaveData();
+    });
+}
+
+rotateLeftBtn.addEventListener('click', () => rotateCurrentMat('left'));
+rotateRightBtn.addEventListener('click', () => rotateCurrentMat('right'));
+
+function runFindCorners() {
+    if (!currentMat || state.busy) return;
     cancelBrightnessEditState();
 
     runStep('Поиск углов...', () => {
@@ -507,7 +523,7 @@ findCornersBtn.addEventListener('click', () => {
         renderRawCanvas();
         renderCornersOverlay(overlayCanvas, overlayContext, corners);
     });
-});
+}
 
 // Клик по кнопке "Выпрямить перспективу" с асинхронным статус-баром
 fixGeometryBtn.addEventListener('click', () => {
@@ -524,8 +540,8 @@ fixGeometryBtn.addEventListener('click', () => {
     });
 });
 
-findCurvedEdgesBtn.addEventListener('click', () => {
-    if (!currentMat) return;
+function runFindCurvedEdges() {
+    if (!currentMat || state.busy) return;
     cancelBrightnessEditState();
 
     runStep('Поиск искривлений...', () => {
@@ -538,7 +554,7 @@ findCurvedEdgesBtn.addEventListener('click', () => {
         renderRawCanvas();
         renderCurvedEdgesOverlay(overlayCanvas, overlayContext, corners, edgePoints);
     });
-});
+}
 
 fixCurvedEdgesBtn.addEventListener('click', () => {
     if (!currentMat || !state.curvesReady) return;
@@ -718,6 +734,8 @@ viewport.bindPointerHandlers({
 syncUi();
 initTabs({
     onChange: (tabId) => {
-        if (tabId === 'tab-4') updateHistogramView();
+        if (tabId === 'tab-3') runFindCorners();
+        if (tabId === 'tab-4') runFindCurvedEdges();
+        if (tabId === 'tab-5') updateHistogramView();
     }
 });

@@ -1,11 +1,13 @@
+import { isFloatMat } from './mat-utils.js';
+
 export function computeHistogram(mat) {
     if (!mat || mat.isDeleted()) throw new Error('Histogram input is empty or deleted');
 
     const isColor = mat.channels() >= 3;
     const channels = isColor ? 3 : 1;
     const hist = Array.from({ length: channels }, () => new Array(256).fill(0));
-    const data = mat.depth() === cv.CV_32F || mat.depth() === cv.CV_64F ? mat.data32F : mat.data;
-    const scale = mat.depth() === cv.CV_32F || mat.depth() === cv.CV_64F ? 255 : 1;
+    const data = isFloatMat(mat) ? mat.data32F : mat.data;
+    const scale = isFloatMat(mat) ? 255 : 1;
     const channelCount = mat.channels();
 
     for (let index = 0; index < mat.rows * mat.cols; index++) {
@@ -94,7 +96,7 @@ export function renderHistogram(canvas, histogramData) {
 export function stretchBrightness(srcMat, blackPoint, whitePoint) {
     const black = Math.max(0, Math.min(255, Number(blackPoint)));
     const white = Math.max(black + 1, Math.min(255, Number(whitePoint)));
-    const sourceIsFloat = srcMat.depth() === cv.CV_32F || srcMat.depth() === cv.CV_64F;
+    const sourceIsFloat = isFloatMat(srcMat);
     const source = sourceIsFloat ? srcMat.data32F : srcMat.data;
     const result = new cv.Mat(srcMat.rows, srcMat.cols, srcMat.type());
     const target = sourceIsFloat ? result.data32F : result.data;

@@ -17,7 +17,13 @@
                 <path d="M15 20V10ZM11 14L15 10L19 14"/>
             </svg>
         </button>
-        <button class="tab-btn" type="button" data-tab="tab-2" role="tab" aria-selected="false" title="Perspective">
+        <button class="tab-btn" type="button" data-tab="tab-2" role="tab" aria-selected="false" title="Rotate">
+            <svg viewBox="0 0 32 32" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M25 10A11 11 0 1 0 26.5 18"/>
+                <path d="M25 3V10H18"/>
+            </svg>
+        </button>
+        <button class="tab-btn" type="button" data-tab="tab-3" role="tab" aria-selected="false" title="Perspective">
             <svg viewBox="0 0 32 32" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M6 21V11M9 7.66L21 6.33M24.6 9L27.4 23M25 25.72L9 24.27"/>
                 <circle cx="6" cy="8" r="3"/>
@@ -26,18 +32,18 @@
                 <circle cx="6" cy="24" r="3"/>
             </svg>
         </button>
-        <button class="tab-btn" type="button" data-tab="tab-3" role="tab" aria-selected="false" title="Edges">
+        <button class="tab-btn" type="button" data-tab="tab-4" role="tab" aria-selected="false" title="Edges">
             <svg viewBox="0 0 32 32" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M5 7C11 9 21 9 27 7V25C21 23 11 23 5 25V7Z"/>
             </svg>
         </button>
-        <button class="tab-btn" type="button" data-tab="tab-4" role="tab" aria-selected="false" title="Brightness">
+        <button class="tab-btn" type="button" data-tab="tab-5" role="tab" aria-selected="false" title="Brightness">
             <svg viewBox="0 0 32 32" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="16" cy="16" r="5"/>
                 <path d="M16 5V7.5ZM16 24.5V27ZM7.5 7.52L9 9ZM23 23L24.5 24.5ZM5 16H7.5ZM24.5 16H27ZM7.5 24.5L9 23ZM23 9L24.5 7.5Z"/>
             </svg>
         </button>
-        <button class="tab-btn" type="button" data-tab="tab-5" role="tab" aria-selected="false" title="Light map">
+        <button class="tab-btn" type="button" data-tab="tab-6" role="tab" aria-selected="false" title="Light map">
             <svg viewBox="0 0 32 32" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M9 19H4V14M4 19L18 5"/>
                 <path d="M19 19H14V14M14 19L23 10"/>
@@ -45,7 +51,7 @@
                 <path d="M3 24H29"/>
             </svg>
         </button>
-        <button class="tab-btn" type="button" data-tab="tab-6" role="tab" aria-selected="false" title="Export">
+        <button class="tab-btn" type="button" data-tab="tab-7" role="tab" aria-selected="false" title="Export">
             <svg viewBox="0 0 32 32" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M16 7V19M11 14l5 5 5-5M9 24h14"/>
                 <path d="M7 24h18"/>
@@ -75,7 +81,15 @@
 
             <div class="tab-pane" id="tab-2" role="tabpanel">
                 <div class="step">
-                    <button id="findCornersBtn" disabled>Find Corners</button>
+                    <div class="mask-edit-row">
+                        <button id="rotateLeftBtn" disabled>Rotate Left</button>
+                        <button id="rotateRightBtn" disabled>Rotate Right</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tab-pane" id="tab-3" role="tabpanel">
+                <div class="step">
                     <div id="cornersStatus" class="step-control inactive"></div>
                     <button id="fixGeometryBtn" disabled>Fix Perspective</button>
                     <div id="geometryControls" class="step-control inactive">
@@ -86,15 +100,14 @@
                 </div>
             </div>
 
-            <div class="tab-pane" id="tab-3" role="tabpanel">
+            <div class="tab-pane" id="tab-4" role="tabpanel">
                 <div class="step">
-                    <button id="findCurvedEdgesBtn" disabled>Find Curved Edges</button>
                     <div id="curvedInfo" class="step-control inactive"></div>
                     <button id="fixCurvedEdgesBtn" disabled>Fix Curved Edges</button>
                 </div>
             </div>
 
-            <div class="tab-pane" id="tab-4" role="tabpanel">
+            <div class="tab-pane" id="tab-5" role="tabpanel">
                 <div class="step">
                     <div class="brightness-histogram">
                         <canvas id="histogramCanvas" width="260" height="160"></canvas>
@@ -114,7 +127,7 @@
                 </div>
             </div>
 
-            <div class="tab-pane" id="tab-5" role="tabpanel">
+            <div class="tab-pane" id="tab-6" role="tabpanel">
                 <div class="step">
                     <button id="detectSheetMaskBtn" disabled>Detect Background</button>
                     <div id="editMask" class="step-control inactive">
@@ -172,13 +185,13 @@
                 </div>
             </div>
 
-            <div class="tab-pane" id="tab-6" role="tabpanel">
+            <div class="tab-pane" id="tab-7" role="tabpanel">
                 <div class="step">
                     <button id="saveBtn" disabled>Сохранить результат</button>
                 </div>
             </div>
 
-            <div id="processStatus" class="step-control" style="color: #0288d1;"></div>
+            <div id="processStatus" class="step-control" style="color: #D55717;"></div>
         </div>
     </div>
 
@@ -189,7 +202,7 @@
             <canvas id="cursorCanvas"></canvas>
         </div>
         <div class="viewport-controls" aria-label="Масштаб изображения">
-            <span>Pan: hold "SPACE" + mouse drag</span>
+            <span>Pan: "SPACE" + mouse drag</span>
             <button id="fitZoomBtn" type="button" class="active">Fit to screen</button>
             <button id="actualZoomBtn" type="button">1:1</button>
         </div>

@@ -1,21 +1,12 @@
+import { isFloatMat, prepareFor8BitCv } from './mat-utils.js';
+
 const INPAINT_RADIUS = 25;
 const LIGHTMAP_WORK_MIN_SIDE = 960;
 const LIGHTMAP_MIN_VALUE = 24;
-const BRIGHTNESS_CONTRAST = 1.0;
-const BRIGHTNESS_OFFSET = 0;
 
 function toOdd(value, min = 3) {
     const base = Math.max(min, Math.floor(value));
     return base % 2 === 0 ? base + 1 : base;
-}
-
-function prepareFor8BitCv(srcMat) {
-    if (!srcMat || srcMat.isDeleted()) return srcMat;
-    if (srcMat.depth() === cv.CV_8U) return srcMat;
-    const targetType = srcMat.channels() === 1 ? cv.CV_8UC1 : srcMat.channels() === 3 ? cv.CV_8UC3 : cv.CV_8UC4;
-    const converted = new cv.Mat();
-    srcMat.convertTo(converted, targetType, 255);
-    return converted;
 }
 
 export function buildSheetMask(srcMat) {
@@ -37,7 +28,10 @@ export function buildSheetMask(srcMat) {
     let largestContourIndex = -1;
     let largestArea = 0;
     for (let index = 0; index < contours.size(); index++) {
-        const area = cv.contourArea(contours.get(index), false);
+        // MatVector.get() создаёт новый cv.Mat на каждый вызов — его нужно удалять вручную.
+        const candidate = contours.get(index);
+        const area = cv.contourArea(candidate, false);
+        candidate.delete();
         if (area > largestArea) {
             largestArea = area;
             largestContourIndex = index;
@@ -100,13 +94,13 @@ export function buildNormalizedLightMap(srcMat, sheetMask) {
     inpaintedBgr.delete();
     lightMapGray.delete();
     if (sourceForLightMap !== srcMat) sourceForLightMap.delete();
-    return { lightMap, normalizedLightMap, workScale };
+    return { lightMap, normalizedLightMap };
 }
 
 function fitReferenceScales(srcMat, lightMap, points, radius, sourceScale) {
     const products = [0, 0, 0];
     const squares = [0, 0, 0];
-    const source = sourceScale === 255 ? srcMat.data32F : srcMat.data;
+    const source = isFloatMat(srcMat) ? srcMat.data32F : srcMat.data;
     const radiusSquared = radius * radius;
     points.forEach((point) => {
         for (let y = Math.max(0, Math.ceil(point.y - radius)); y <= Math.min(srcMat.rows - 1, Math.floor(point.y + radius)); y++) {
@@ -143,10 +137,10 @@ export function applyBrightnessWithLightMap(srcMat, lightMap, options = {}) {
     const targets = options.targetColors || {};
     const resized = new cv.Mat();
     cv.resize(lightMap, resized, new cv.Size(srcMat.cols, srcMat.rows), 0, 0, cv.INTER_CUBIC);
-    const sourceScale = srcMat.depth() === cv.CV_32F || srcMat.depth() === cv.CV_64F ? 255 : 1;
-    const source = sourceScale === 255 ? srcMat.data32F : srcMat.data;
+    const sourceScale = isFloatMat(srcMat) ? 255 : 1;
+    const source = isFloatMat(srcMat) ? srcMat.data32F : srcMat.data;
     const result = new cv.Mat(srcMat.rows, srcMat.cols, srcMat.type());
-    const target = sourceScale === 255 ? result.data32F : result.data;
+    const target = isFloatMat(srcMat) ? result.data32F : result.data;
 
     if (mode === 'white') {
         for (let pixel = 0; pixel < srcMat.rows * srcMat.cols; pixel++) {
@@ -174,6 +168,15 @@ export function applyBrightnessWithLightMap(srcMat, lightMap, options = {}) {
     const blackTarget = targets.black || [0, 0, 0];
     const paperTarget = targets.paper || [255, 255, 255];
     const whiteTarget = targets.white || [255, 255, 255];
+
+    for (let channel = 0; channel < 3; channel++) {
+        if (!(blackScale[channel] < paperScale[channel] && paperScale[channel] < whiteScale[channel])) {
+            resized.delete();
+            result.delete();
+            throw new Error('Эталоны должны удовлетворять: чёрный < бумага < белый.');
+        }
+    }
+
     for (let pixel = 0; pixel < srcMat.rows * srcMat.cols; pixel++) {
         for (let channel = 0; channel < 3; channel++) {
             const localLight = resized.data[pixel * 3 + (2 - channel)];
@@ -181,11 +184,6 @@ export function applyBrightnessWithLightMap(srcMat, lightMap, options = {}) {
             const paper = paperScale[channel] * localLight;
             const white = whiteScale[channel] * localLight;
             const value = source[pixel * 4 + channel] * sourceScale;
-            if (paper <= black + 1 || paper >= white - 1) {
-                resized.delete();
-                result.delete();
-                throw new Error('Эталоны должны удовлетворять: чёрный < бумага < белый.');
-            }
             const lowerSlope = (paperTarget[channel] - blackTarget[channel]) / (paper - black);
             const upperSlope = (whiteTarget[channel] - paperTarget[channel]) / (white - paper);
             const paperSlope = 2 * lowerSlope * upperSlope / (lowerSlope + upperSlope);
@@ -197,13 +195,5 @@ export function applyBrightnessWithLightMap(srcMat, lightMap, options = {}) {
         target[pixel * 4 + 3] = source[pixel * 4 + 3];
     }
     resized.delete();
-    return result;
-}
-
-export function normalizeBrightness(srcMat, sheetMask) {
-    const maps = buildNormalizedLightMap(srcMat, sheetMask);
-    const result = applyBrightnessWithLightMap(srcMat, maps.lightMap);
-    maps.lightMap.delete();
-    maps.normalizedLightMap.delete();
     return result;
 }

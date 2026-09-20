@@ -190,7 +190,9 @@ export async function loadLightmapFromFile(file, targetSize) {
     const channels = new cv.MatVector();
     cv.split(workRgba, channels);
     if (channels.size() >= 4) {
-        channels.get(3).copyTo(validMask);
+        const alphaChannel = channels.get(3);
+        alphaChannel.copyTo(validMask);
+        alphaChannel.delete();
     } else {
         validMask.create(finalHeight, finalWidth, cv.CV_8UC1);
         validMask.setTo(new cv.Scalar(255));
