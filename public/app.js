@@ -54,7 +54,7 @@ const {
 } = elements;
 const viewport = new CanvasViewport(canvasViewport, canvas, overlayCanvas, cursorCanvas);
 viewport.attachPan();
-const overlayContext = viewport.getOverlayContext();
+const overlayContext = overlayCanvas.getContext('2d');
 const maskTool = new MaskTool({
     getPosition: (event) => viewport.imagePointFromEvent(event),
     getRadius: () => getBrushRadius(),

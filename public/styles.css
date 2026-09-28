@@ -77,34 +77,23 @@ body {
     margin: 0 0 4px;
 }
 
-.tab-content {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-}
-
 .tab-pane {
     display: none;
+    flex-direction: column;
+    gap: 10px;
 }
 
 .tab-pane.active {
-    display: block;
-}
-
-.step {
     display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding-bottom: 20px;
-    border-bottom: 1px solid #e0e0e0;
 }
-.step:last-of-type { border-bottom: none; padding-bottom: 0; }
 
 .step-control { text-align: center; color: #666; }
 .step-control.inactive { display: none; }
 
 button:disabled { opacity: 0.5; pointer-events: none; }
-button, .btn-file {
+
+button,
+.btn-file {
     width: 100%;
     padding: 10px 15px;
     font-size: 16px;
@@ -112,10 +101,28 @@ button, .btn-file {
     border: 1px solid #ccc;
     border-radius: 3px;
     background: #f0f0f0;
-    text-align: center;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: center;
 }
-.btn-file input[type="file"] { display: none; }
-.btn-file:has(input:disabled) { opacity: 0.5; cursor: default; pointer-events: none; }
+
+button svg {
+    width: 24px;
+    height: 24px;
+    stroke: currentColor;
+    fill: none;
+}
+
+.btn-file input[type="file"] {
+    display: none;
+}
+
+.btn-file:has(input:disabled) {
+    opacity: 0.5;
+    cursor: default;
+    pointer-events: none; 
+}
 
 .opencv-status {
     margin-top: auto;

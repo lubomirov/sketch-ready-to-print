@@ -10,6 +10,8 @@ export class CanvasViewport {
         this.offsetY = 0;
         this.imageWidth = 0;
         this.imageHeight = 0;
+        this.displayWidth = 0;
+        this.displayHeight = 0;
         this.panState = null;
         this.spacePressed = false;
         this.resizeObserver = new ResizeObserver(() => {
@@ -51,18 +53,16 @@ export class CanvasViewport {
     }
 
     centerImage() {
-        const displayWidth = this.imageWidth * this.scale;
-        const displayHeight = this.imageHeight * this.scale;
-        this.offsetX = Math.max(0, (this.container.clientWidth - displayWidth) / 2);
-        this.offsetY = Math.max(0, (this.container.clientHeight - displayHeight) / 2);
+        this.displayWidth = this.imageWidth * this.scale;
+        this.displayHeight = this.imageHeight * this.scale;
+        this.offsetX = Math.max(0, (this.container.clientWidth - this.displayWidth) / 2);
+        this.offsetY = Math.max(0, (this.container.clientHeight - this.displayHeight) / 2);
     }
 
     applyTransform() {
-        const width = `${this.imageWidth * this.scale}px`;
-        const height = `${this.imageHeight * this.scale}px`;
         [this.imageCanvas, this.overlayCanvas, this.cursorCanvas].forEach((canvas) => {
-            canvas.style.width = width;
-            canvas.style.height = height;
+            canvas.style.width = `${this.displayWidth}px`;
+            canvas.style.height = `${this.displayHeight}px`;
             canvas.style.left = `${this.offsetX}px`;
             canvas.style.top = `${this.offsetY}px`;
         });
@@ -70,12 +70,6 @@ export class CanvasViewport {
 
     renderImage(mat) {
         cv.imshow(this.imageCanvas.id, mat);
-        this.clearOverlay();
-        this.clearCursor();
-    }
-
-    getOverlayContext() {
-        return this.overlayCanvas.getContext('2d');
     }
 
     imagePointFromEvent(event) {
