@@ -153,12 +153,10 @@ button svg {
 .mask-edit-row button { width: auto; }
 .mask-edit-row button.active { background: #d7f4dd; border-color: #50a665; }
 .mask-edit-row button.reference-active { background: #dce8ff; border-color: #4c83d8; }
-.mask-edit-row button.reference-black { color: #fff; background: #333; border-color: #111; }
-.mask-edit-row button.reference-white { background: #fff; border-color: #444; }
 .mask-edit-row input[type="number"] { width: 55px; }
 .reference-stats { margin: 12px 0; line-height: 1.45; text-align: left; }
 .reference-stats-summary { text-align: center; }
-.reference-stats-points { margin: 6px 0 0; padding-left: 20px; }
+.paper-anchor-help { margin: 0 0 8px; color: #555; line-height: 1.4; }
 .paper-color-picker { width: 48px; height: 32px; padding: 2px; }
 
 .lightmap-preview {

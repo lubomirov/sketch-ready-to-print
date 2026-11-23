@@ -21,7 +21,7 @@ export function initTabs({ onChange } = {}) {
     });
 }
 
-export function createUi({ onReferenceRadiusInput }) {
+export function createUi({ onPaperAnchorRadiusInput, onPaperThresholdChange }) {
     const elements = {
         canvasViewport: document.getElementById('canvasViewport'),
         canvas: document.getElementById('canvas'),
@@ -54,18 +54,17 @@ export function createUi({ onReferenceRadiusInput }) {
         maskEraseBtn: document.getElementById('maskEraseBtn'),
         maskBrushSize: document.getElementById('maskBrushSize'),
         maskBrushSizeValue: document.getElementById('maskBrushSizeValue'),
-        paperModeWhiteBtn: document.getElementById('paperModeWhiteBtn'),
-        paperModeColorBtn: document.getElementById('paperModeColorBtn'),
-        coloredPaperControls: document.getElementById('coloredPaperControls'),
-        addReferencePointBtn: document.getElementById('addReferencePointBtn'),
-        addBlackReferencePointBtn: document.getElementById('addBlackReferencePointBtn'),
-        addWhiteReferencePointBtn: document.getElementById('addWhiteReferencePointBtn'),
-        referenceRadius: document.getElementById('referenceRadius'),
-        referenceRadiusValue: document.getElementById('referenceRadiusValue'),
-        referenceStats: document.getElementById('referenceStats'),
-        blackColorPicker: document.getElementById('blackColorPicker'),
-        paperColorPicker: document.getElementById('paperColorPicker'),
-        whiteColorPicker: document.getElementById('whiteColorPicker'),
+        paperAnchorControls: document.getElementById('paperAnchorControls'),
+        addPaperAnchorBtn: document.getElementById('addPaperAnchorBtn'),
+        paperAnchorRadius: document.getElementById('paperAnchorRadius'),
+        paperAnchorRadiusValue: document.getElementById('paperAnchorRadiusValue'),
+        paperAnchorStats: document.getElementById('paperAnchorStats'),
+        targetPaperColor: document.getElementById('targetPaperColor'),
+        primaryPaperMapZone: document.getElementById('primaryPaperMapZone'),
+        primaryPaperMapCanvas: document.getElementById('primaryPaperMapCanvas'),
+        paperDifferenceControls: document.getElementById('paperDifferenceControls'),
+        paperDifferenceThreshold: document.getElementById('paperDifferenceThreshold'),
+        paperDifferenceThresholdValue: document.getElementById('paperDifferenceThresholdValue'),
         lightMapZone: document.getElementById('lightMapZone'),
         lightMapCanvas: document.getElementById('lightMapCanvas'),
         inputFilename: document.getElementById('input_filename'),
@@ -76,7 +75,8 @@ export function createUi({ onReferenceRadiusInput }) {
 
     const {
         marginInput, marginValue, maskBrushSize, maskBrushSizeValue,
-        referenceRadius, referenceRadiusValue
+        paperAnchorRadius, paperAnchorRadiusValue,
+        paperDifferenceThreshold, paperDifferenceThresholdValue
     } = elements;
 
     if (marginInput && marginValue) {
@@ -87,11 +87,21 @@ export function createUi({ onReferenceRadiusInput }) {
         maskBrushSize.addEventListener('input', (event) => maskBrushSizeValue.value = event.target.value);
         maskBrushSizeValue.addEventListener('input', (event) => maskBrushSize.value = event.target.value);
     }
-    if (referenceRadius && referenceRadiusValue) {
-        referenceRadius.addEventListener('input', (event) => referenceRadiusValue.value = event.target.value);
-        referenceRadiusValue.addEventListener('input', (event) => referenceRadius.value = event.target.value);
-        referenceRadius.addEventListener('input', onReferenceRadiusInput);
-        referenceRadiusValue.addEventListener('input', onReferenceRadiusInput);
+    if (paperAnchorRadius && paperAnchorRadiusValue) {
+        paperAnchorRadius.addEventListener('input', (event) => paperAnchorRadiusValue.value = event.target.value);
+        paperAnchorRadiusValue.addEventListener('input', (event) => paperAnchorRadius.value = event.target.value);
+        paperAnchorRadius.addEventListener('input', onPaperAnchorRadiusInput);
+        paperAnchorRadiusValue.addEventListener('input', onPaperAnchorRadiusInput);
+    }
+    if (paperDifferenceThreshold && paperDifferenceThresholdValue) {
+        paperDifferenceThreshold.addEventListener('input', (event) => {
+            paperDifferenceThresholdValue.value = event.target.value;
+        });
+        paperDifferenceThresholdValue.addEventListener('input', (event) => {
+            paperDifferenceThreshold.value = event.target.value;
+        });
+        paperDifferenceThreshold.addEventListener('change', onPaperThresholdChange);
+        paperDifferenceThresholdValue.addEventListener('change', onPaperThresholdChange);
     }
 
     function setInactive(element, inactive) {
@@ -100,15 +110,14 @@ export function createUi({ onReferenceRadiusInput }) {
         if (element.tagName === 'BUTTON') element.disabled = inactive;
     }
 
-    function syncUi(state, { hasSheetMask, hasLightMap, paperMode = 'white', hasAllReferenceTypes, canSave }) {
+    function syncUi(state, { hasSheetMask, hasPrimaryPaperMap, hasLightMap, canSave }) {
         const {
             cornersStatus, fixGeometryBtn, geometryControls,
             curvedInfo, fixCurvedEdgesBtn, detectSheetMaskBtn,
             recalcLightMapBtn, applyLightMapBtn, stretchBrightnessBtn, editMask, lightMapZone,
             saveBtn, maskAddBtn, maskEraseBtn, maskBrushSize, maskBrushSizeValue,
-            paperModeWhiteBtn, paperModeColorBtn, coloredPaperControls,
-            addReferencePointBtn, addBlackReferencePointBtn, addWhiteReferencePointBtn,
-            referenceRadius, referenceRadiusValue, blackColorPicker, paperColorPicker, whiteColorPicker,
+            paperAnchorControls, addPaperAnchorBtn, paperAnchorRadius, paperAnchorRadiusValue, targetPaperColor,
+            primaryPaperMapZone, paperDifferenceControls, paperDifferenceThreshold, paperDifferenceThresholdValue,
             rotateLeftBtn, rotateRightBtn
         } = elements;
 
@@ -119,27 +128,34 @@ export function createUi({ onReferenceRadiusInput }) {
         setInactive(geometryControls, !state.cornersFound);
         setInactive(curvedInfo, !state.curvesReady);
         setInactive(fixCurvedEdgesBtn, !state.imageLoaded || !state.curvesReady || state.busy);
-        setInactive(detectSheetMaskBtn, !state.imageLoaded || state.busy);
+        setInactive(detectSheetMaskBtn, !state.imageLoaded || !hasPrimaryPaperMap || state.busy);
         setInactive(recalcLightMapBtn, !state.imageLoaded || !hasSheetMask || !state.maskEditing || state.busy);
         setInactive(applyLightMapBtn, !state.imageLoaded || !hasLightMap || state.busy);
 
-        const isWhiteMode = paperMode === 'white';
         setInactive(stretchBrightnessBtn, !state.imageLoaded || state.busy);
         setInactive(editMask, !state.maskEditing);
         setInactive(lightMapZone, !state.maskEditing);
-        setInactive(coloredPaperControls, isWhiteMode || !state.maskEditing);
+        setInactive(paperAnchorControls, !state.imageLoaded || state.busy);
+        setInactive(primaryPaperMapZone, !hasPrimaryPaperMap);
+        setInactive(paperDifferenceControls, !hasPrimaryPaperMap);
         setInactive(saveBtn, !state.imageLoaded || !canSave || state.busy);
 
-        if (paperModeWhiteBtn) paperModeWhiteBtn.classList.toggle('active', isWhiteMode);
-        if (paperModeColorBtn) paperModeColorBtn.classList.toggle('active', !isWhiteMode);
-
         const maskControlsDisabled = !state.maskEditing || state.busy;
-        [maskAddBtn, maskEraseBtn, maskBrushSize, maskBrushSizeValue,
-            paperModeWhiteBtn, paperModeColorBtn,
-            addReferencePointBtn, addBlackReferencePointBtn, addWhiteReferencePointBtn,
-            referenceRadius, referenceRadiusValue, blackColorPicker, paperColorPicker, whiteColorPicker]
+        [maskAddBtn, maskEraseBtn, maskBrushSize, maskBrushSizeValue]
             .forEach((element) => {
                 if (element) element.disabled = maskControlsDisabled;
+            });
+
+        const paperControlsDisabled = !state.imageLoaded || state.busy;
+        [addPaperAnchorBtn, paperAnchorRadius, paperAnchorRadiusValue, targetPaperColor]
+            .forEach((element) => {
+                if (element) element.disabled = paperControlsDisabled;
+            });
+
+        const thresholdControlsDisabled = !hasPrimaryPaperMap || state.busy;
+        [paperDifferenceThreshold, paperDifferenceThresholdValue]
+            .forEach((element) => {
+                if (element) element.disabled = thresholdControlsDisabled;
             });
     }
 

@@ -30,24 +30,23 @@ export class MaskTool {
     }
 }
 
-export class ReferenceTool {
-    constructor({ getPosition, getRadius, points, getType, onChange }) {
+export class PaperAnchorTool {
+    constructor({ getPosition, getHitRadius, points, onChange }) {
         this.getPosition = getPosition;
-        this.getRadius = getRadius;
+        this.getHitRadius = getHitRadius;
         this.points = points;
-        this.getType = getType;
         this.onChange = onChange;
         this.draggedIndex = -1;
     }
 
     pointerDown(event) {
         const point = this.getPosition(event);
-        const radius = this.getRadius();
+        const hitRadius = this.getHitRadius();
         this.draggedIndex = this.points.findIndex((candidate) =>
-            Math.hypot(candidate.x - point.x, candidate.y - point.y) <= radius
+            Math.hypot(candidate.x - point.x, candidate.y - point.y) <= hitRadius
         );
         if (this.draggedIndex === -1) {
-            this.points.push({ ...point, type: this.getType() });
+            this.points.push({ ...point });
             this.draggedIndex = this.points.length - 1;
         }
         this.onChange();

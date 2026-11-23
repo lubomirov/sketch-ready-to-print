@@ -66,18 +66,12 @@ export function renderMaskOverlay(canvas, ctx, maskMat, alpha = 0.5) {
     ctx.drawImage(overlayCanvas, 0, 0);
 }
 
-export function renderReferencePoints(canvas, ctx, referencePoints, radius) {
-    const colors = {
-        paper: { stroke: '#2f76d2', fill: '#2f76d2' },
-        black: { stroke: '#ffffff', fill: '#111111' },
-        white: { stroke: '#222222', fill: '#ffffff' }
-    };
+export function renderPaperAnchors(canvas, ctx, paperAnchors, radius) {
     ctx.save();
     ctx.lineWidth = Math.max(2, canvas.width / 800);
-    referencePoints.forEach((point) => {
-        const color = colors[point.type];
-        ctx.strokeStyle = color.stroke;
-        ctx.fillStyle = color.fill;
+    paperAnchors.forEach((point) => {
+        ctx.strokeStyle = '#2f76d2';
+        ctx.fillStyle = '#2f76d2';
         ctx.beginPath();
         ctx.arc(point.x, point.y, radius, 0, 2 * Math.PI);
         ctx.stroke();

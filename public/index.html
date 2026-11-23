@@ -112,7 +112,43 @@
         </div>
 
         <div class="tab-pane" id="tab-6" role="tabpanel">
-            <button id="detectSheetMaskBtn" disabled>Detect Background</button>
+            <div id="paperAnchorControls" class="step-control inactive">
+                <div class="mask-edit-row">
+                    <button id="addPaperAnchorBtn" type="button" aria-pressed="false">Point Blank Paper</button>
+                </div>
+                <div class="paper-anchor-help">Указывайте участки чистой бумаги без штрихов. Перетаскивайте точки. Утащите точку за пределы изображения чтобы удалить ее. Повторное нажатие на кнопку завершает ввод.</div>
+                <div class="mask-edit-row">
+                    <label for="paperAnchorRadius">Радиус опорной области:</label>
+                    <input type="range" id="paperAnchorRadius" min="10" max="200" value="50" step="1">
+                    <input type="number" id="paperAnchorRadiusValue" min="10" max="200" value="50">
+                </div>
+                <div id="paperAnchorStats" class="step-control reference-stats">
+                    <div class="reference-stats-summary">
+                        <div>Опорных точек: 0</div>
+                        <div>Диапазон от - до -</div>
+                        <div>Среднее значение -</div>
+                    </div>
+                </div>
+                <div class="mask-edit-row">
+                    <label for="targetPaperColor">Целевой цвет бумаги:</label>
+                    <input id="targetPaperColor" class="paper-color-picker" type="color" value="#ffffff" aria-label="Целевой цвет бумаги">
+                </div>
+            </div>
+            <div id="primaryPaperMapZone" class="step-control inactive">
+                <div style="font-weight: 600; margin-bottom: 6px;">Предварительная карта исходного цвета бумаги</div>
+                <div class="lightmap-preview">
+                    <canvas id="primaryPaperMapCanvas" width="1" height="1"></canvas>
+                </div>
+            </div>
+            <button id="detectSheetMaskBtn" disabled>Detect Blank Paper</button>
+            <div id="paperDifferenceControls" class="step-control inactive">
+                <div class="mask-edit-row">
+                    <label for="paperDifferenceThreshold">Порог отличия RGB:</label>
+                    <input type="range" id="paperDifferenceThreshold" min="1" max="255" value="5" step="1">
+                    <input type="number" id="paperDifferenceThresholdValue" min="1" max="255" value="5">
+                </div>
+                <div class="paper-anchor-help">Пиксель помечается как «не бумага», если среднеквадратичное отличие каналов RGB от предварительной карты превышает порог. Начальное значение оценивается по разбросу оттенков в опорных областях. Изменение порога заново строит маску и сбрасывает ручные правки.</div>
+            </div>
             <div id="editMask" class="step-control inactive">
                 Erase all green to reveal lighting variations
                 <div class="mask-edit-row">
@@ -125,41 +161,9 @@
                     <input type="number" id="maskBrushSizeValue" min="10" max="50" value="20">
                 </div>
             </div>
-            <div class="mask-edit-row step-control">
-                <label>Режим:</label>
-                <button id="paperModeWhiteBtn" type="button" class="active">Белая бумага</button>
-                <button id="paperModeColorBtn" type="button">Цветная бумага</button>
-            </div>
-            <div id="coloredPaperControls" class="step-control inactive">
-                <div class="mask-edit-row">
-                    <button id="addReferencePointBtn" type="button">Эталон бумаги</button>
-                    <button id="addBlackReferencePointBtn" type="button">Эталон чёрного</button>
-                    <button id="addWhiteReferencePointBtn" type="button">Эталон белого</button>
-                </div>
-                <div class="mask-edit-row">
-                    <label for="referenceRadius">Радиус:</label>
-                    <input type="range" id="referenceRadius" min="10" max="200" value="50" step="1">
-                    <input type="number" id="referenceRadiusValue" min="10" max="200" value="50">
-                </div>
-                <div id="referenceStats" class="step-control reference-stats">
-                    <div class="reference-stats-summary">Точек: 0; диапазон: -; среднее: -</div>
-                </div>
-                <div class="mask-edit-row">
-                    <label for="blackColorPicker">Цвет чёрного:</label>
-                    <input id="blackColorPicker" class="paper-color-picker" type="color" value="#000000" aria-label="Цвет чёрного">
-                </div>
-                <div class="mask-edit-row">
-                    <label for="paperColorPicker">Цвет бумаги:</label>
-                    <input id="paperColorPicker" class="paper-color-picker" type="color" value="#ffffff" aria-label="Цвет бумаги">
-                </div>
-                <div class="mask-edit-row">
-                    <label for="whiteColorPicker">Цвет светлого эталона:</label>
-                    <input id="whiteColorPicker" class="paper-color-picker" type="color" value="#ffffff" aria-label="Цвет светлого эталона">
-                </div>
-            </div>
             <button id="recalcLightMapBtn" disabled>Пересчитать карту освещенности</button>
             <div id="lightMapZone" class="step-control inactive">
-                <div style="font-weight: 600; margin-bottom: 6px;">Normalized Light Map</div>
+                <div style="font-weight: 600; margin-bottom: 6px;">Уточненная карта освещенности</div>
                 <div class="lightmap-preview">
                     <canvas id="lightMapCanvas" width="1" height="1"></canvas>
                 </div>

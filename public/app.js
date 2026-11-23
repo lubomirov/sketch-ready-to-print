@@ -1,10 +1,16 @@
 import { findCorners, findCurvedEdges, rectifyCurvedEdges, transformPerspective } from './geometry.js';
-import { applyBrightnessWithLightMap, buildNormalizedLightMap, buildSheetMask } from './lightmap.js';
+import {
+    applyBrightnessWithLightMap,
+    buildBlankPaperMask,
+    buildRefinedLightMap,
+    buildPrimaryPaperMap,
+    estimatePaperTextureThreshold
+} from './lightmap.js';
 import { createUi, initTabs } from './ui.js';
-import { renderCornersOverlay, renderCurvedEdgesOverlay, renderMaskOverlay, renderReferencePoints } from './renderers.js';
+import { renderCornersOverlay, renderCurvedEdgesOverlay, renderMaskOverlay, renderPaperAnchors } from './renderers.js';
 import { loadImageFromFile, saveImageToFile, normalizeToFloatWorkingMat, toDisplayUint8Mat } from './file-io.js';
 import { CanvasViewport } from './viewport.js';
-import { GeometryTool, MaskTool, ReferenceTool } from './tools.js';
+import { GeometryTool, MaskTool, PaperAnchorTool } from './tools.js';
 import { computeHistogram, renderHistogram, stretchBrightness } from './brightness.js';
 import { isFloatMat } from './mat-utils.js';
 import { rotateMat } from './rotate.js';
@@ -13,13 +19,12 @@ let currentMat = null;
 let corners = [];
 let edgePoints = [];
 let sheetMask = null;
+let primaryPaperMap = null;
 let lightMap = null;
-let normalizedLightMap = null;
+let lightMapPreview = null;
 let maskPaintMode = 'add';
-let referencePointEditing = false;
-let referencePoints = [];
-let referencePointType = 'paper';
-let paperMode = 'white';
+let paperAnchorEditing = false;
+let paperAnchors = [];
 let originalFileName = 'image';
 let outputImageDataUrl = '';
 let brightnessHistogram = null;
@@ -35,9 +40,8 @@ const state = {
 };
 
 const { elements, syncUi: syncUiControls } = createUi({
-    onReferenceRadiusInput: () => {
-        if (state.maskEditing) scheduleMaskEditView();
-    }
+    onPaperAnchorRadiusInput: handlePaperAnchorRadiusInput,
+    onPaperThresholdChange: handlePaperThresholdChange
 });
 const {
     canvasViewport, overlayCanvas, cursorCanvas, fitZoomBtn, actualZoomBtn,
@@ -46,10 +50,10 @@ const {
     canvas, opencvStatus, fileInput, rotateLeftBtn, rotateRightBtn, cornersStatus, fixGeometryBtn,
     geometryControls, curvedInfo, fixCurvedEdgesBtn, detectSheetMaskBtn,
     recalcLightMapBtn, applyLightMapBtn, saveBtn, editMask, maskAddBtn, maskEraseBtn,
-    maskBrushSize, maskBrushSizeValue, paperModeWhiteBtn, paperModeColorBtn,
-    addReferencePointBtn, addBlackReferencePointBtn, addWhiteReferencePointBtn,
-    referenceRadius, referenceRadiusValue, referenceStats,
-    blackColorPicker, paperColorPicker, whiteColorPicker, lightMapZone, lightMapCanvas,
+    maskBrushSize, maskBrushSizeValue, addPaperAnchorBtn,
+    paperAnchorRadius, paperAnchorRadiusValue, paperAnchorStats, targetPaperColor,
+    primaryPaperMapZone, primaryPaperMapCanvas, lightMapZone, lightMapCanvas,
+    paperDifferenceThreshold, paperDifferenceThresholdValue,
     inputFilename, processStatus, marginInput, marginValue
 } = elements;
 const viewport = new CanvasViewport(canvasViewport, canvas, overlayCanvas, cursorCanvas);
@@ -61,11 +65,10 @@ const maskTool = new MaskTool({
     paint: (from, to) => paintMaskStroke(from, to),
     onChange: scheduleMaskEditView
 });
-const referenceTool = new ReferenceTool({
+const paperAnchorTool = new PaperAnchorTool({
     getPosition: (event) => viewport.imagePointFromEvent(event),
-    getRadius: () => getReferenceRadius(),
-    points: referencePoints,
-    getType: () => referencePointType,
+    getHitRadius: () => Math.min(getPaperAnchorRadius(), Math.max(8, viewport.imageWidth / 100)),
+    points: paperAnchors,
     onChange: () => {
         scheduleMaskEditView();
         syncUi();
@@ -103,12 +106,10 @@ marginValue.addEventListener('input', (e) => marginInput.value = e.target.value)
 maskBrushSize.addEventListener('input', (e) => maskBrushSizeValue.value = e.target.value);
 maskBrushSizeValue.addEventListener('input', (e) => maskBrushSize.value = e.target.value);
 function syncUi() {
-    const hasAllReferenceTypes = ['paper', 'black', 'white'].every((type) => referencePoints.some((point) => point.type === type));
     syncUiControls(state, {
         hasSheetMask: Boolean(sheetMask),
+        hasPrimaryPaperMap: Boolean(primaryPaperMap),
         hasLightMap: Boolean(lightMap),
-        paperMode,
-        hasAllReferenceTypes,
         canSave: Boolean(outputImageDataUrl)
     });
 }
@@ -127,17 +128,10 @@ function setMaskPaintMode(mode) {
     maskEraseBtn.classList.toggle('active', maskPaintMode === 'erase');
 }
 
-function setReferencePointEditing(enabled, type = referencePointType) {
-    referencePointEditing = enabled;
-    referencePointType = type;
-    const buttons = [
-        [addReferencePointBtn, 'paper'],
-        [addBlackReferencePointBtn, 'black'],
-        [addWhiteReferencePointBtn, 'white']
-    ];
-    buttons.forEach(([button, buttonType]) => {
-        button.classList.toggle('reference-active', enabled && buttonType === type);
-    });
+function setPaperAnchorEditing(enabled) {
+    paperAnchorEditing = enabled;
+    addPaperAnchorBtn.classList.toggle('reference-active', enabled);
+    addPaperAnchorBtn.setAttribute('aria-pressed', enabled ? 'true' : 'false');
 }
 
 function clearMaskMat() {
@@ -147,14 +141,34 @@ function clearMaskMat() {
     }
 }
 
+function clearPrimaryPaperMap() {
+    if (primaryPaperMap) {
+        primaryPaperMap.delete();
+        primaryPaperMap = null;
+    }
+    if (primaryPaperMapCanvas) {
+        primaryPaperMapCanvas.width = 1;
+        primaryPaperMapCanvas.height = 1;
+        const ctx = primaryPaperMapCanvas.getContext('2d');
+        if (ctx) ctx.clearRect(0, 0, 1, 1);
+    }
+}
+
+function renderPrimaryPaperMapView() {
+    if (!primaryPaperMap || !primaryPaperMapCanvas) return;
+    primaryPaperMapCanvas.width = primaryPaperMap.cols;
+    primaryPaperMapCanvas.height = primaryPaperMap.rows;
+    cv.imshow(primaryPaperMapCanvas, primaryPaperMap);
+}
+
 function clearLightMapMat() {
     if (lightMap) {
         lightMap.delete();
         lightMap = null;
     }
-    if (normalizedLightMap) {
-        normalizedLightMap.delete();
-        normalizedLightMap = null;
+    if (lightMapPreview) {
+        lightMapPreview.delete();
+        lightMapPreview = null;
     }
 }
 
@@ -167,34 +181,44 @@ function clearLightMapView() {
 }
 
 function renderLightMapView() {
-    if (!lightMapCanvas || !normalizedLightMap) {
+    if (!lightMapCanvas || !lightMapPreview) {
         clearLightMapView();
         return;
     }
 
-    lightMapCanvas.width = normalizedLightMap.cols;
-    lightMapCanvas.height = normalizedLightMap.rows;
-    cv.imshow(lightMapCanvas, normalizedLightMap);
+    lightMapCanvas.width = lightMapPreview.cols;
+    lightMapCanvas.height = lightMapPreview.rows;
+    cv.imshow(lightMapCanvas, lightMapPreview);
 }
 
 function cancelBrightnessEditState() {
     clearMaskMat();
+    clearPrimaryPaperMap();
     clearLightMapMat();
     state.maskEditing = false;
-    setReferencePointEditing(false);
-    referencePoints.length = 0;
+    setPaperAnchorEditing(false);
+    paperAnchors.length = 0;
+    setMaskPaintMode('add');
+    clearLightMapView();
+}
+
+function invalidatePaperAnalysis() {
+    clearMaskMat();
+    clearPrimaryPaperMap();
+    clearLightMapMat();
+    state.maskEditing = false;
     setMaskPaintMode('add');
     clearLightMapView();
 }
 
 function renderActiveOverlay() {
     viewport.clearOverlay();
-    if (!state.maskEditing || !sheetMask) return;
-
-    renderMaskOverlay(overlayCanvas, overlayContext, sheetMask, 0.5);
-    if (paperMode === 'colored') {
-        renderReferencePoints(overlayCanvas, overlayContext, referencePoints, getReferenceRadius());
-        updateReferenceStats();
+    if (state.maskEditing && sheetMask) {
+        renderMaskOverlay(overlayCanvas, overlayContext, sheetMask, 0.5);
+    }
+    if (currentMat) {
+        renderPaperAnchors(overlayCanvas, overlayContext, paperAnchors, getPaperAnchorRadius());
+        updatePaperAnchorStats();
     }
 }
 
@@ -235,17 +259,43 @@ function updateHistogramView() {
     }).join('');
 }
 
-function getReferenceRadius() {
-    const value = parseInt(referenceRadius.value, 10) || 50;
+function getPaperAnchorRadius() {
+    const value = parseInt(paperAnchorRadius.value, 10) || 50;
     return Math.max(1, value);
 }
 
-function formatRgb(rgb) {
-    return `${rgb[0]}-${rgb[1]}-${rgb[2]}`;
+function handlePaperAnchorRadiusInput() {
+    if (!state.imageLoaded) return;
+    if (primaryPaperMap || sheetMask || lightMap) {
+        invalidatePaperAnalysis();
+        processStatus.innerText = 'Радиус изменен. Войдите и выйдите из режима Point Blank Paper, чтобы построить карту заново.';
+    }
+    scheduleMaskEditView();
 }
 
-function getBrightness(rgb) {
-    return Math.round((rgb[0] + rgb[1] + rgb[2]) / 3);
+function getPaperDifferenceThreshold() {
+    const threshold = Number(paperDifferenceThreshold.value);
+    if (!Number.isInteger(threshold) || threshold < 1 || threshold > 255) {
+        throw new Error('Порог отличия RGB должен быть целым числом от 1 до 255.');
+    }
+    return threshold;
+}
+
+function handlePaperThresholdChange() {
+    if (!state.maskEditing || !primaryPaperMap || state.busy) return;
+
+    runStep('Обновление маски чистой бумаги...', () => {
+        const updatedMask = buildBlankPaperMask(currentMat, primaryPaperMap, getPaperDifferenceThreshold());
+        clearMaskMat();
+        clearLightMapMat();
+        clearLightMapView();
+        sheetMask = updatedMask;
+        renderMaskEditView();
+    });
+}
+
+function formatRgb(rgb) {
+    return rgb.map((value) => Math.round(value)).join('-');
 }
 
 function parseHexColor(hexColor) {
@@ -256,7 +306,7 @@ function parseHexColor(hexColor) {
     ];
 }
 
-function getPixelsInReferenceCircle(point, radius, visitPixel) {
+function forEachPixelInPaperAnchorArea(point, radius, visitPixel) {
     const radiusSquared = radius * radius;
     const left = Math.max(0, Math.ceil(point.x - radius));
     const right = Math.min(currentMat.cols - 1, Math.floor(point.x + radius));
@@ -272,81 +322,59 @@ function getPixelsInReferenceCircle(point, radius, visitPixel) {
     }
 }
 
-function getNormalizedLightMapAverage(point, radius) {
-    if (!normalizedLightMap) return null;
-
-    const scaleX = normalizedLightMap.cols / currentMat.cols;
-    const scaleY = normalizedLightMap.rows / currentMat.rows;
-    const mapCenterX = point.x * scaleX;
-    const mapCenterY = point.y * scaleY;
-    const mapRadiusX = Math.max(1, radius * scaleX);
-    const mapRadiusY = Math.max(1, radius * scaleY);
-    const left = Math.max(0, Math.ceil(mapCenterX - mapRadiusX));
-    const right = Math.min(normalizedLightMap.cols - 1, Math.floor(mapCenterX + mapRadiusX));
-    const top = Math.max(0, Math.ceil(mapCenterY - mapRadiusY));
-    const bottom = Math.min(normalizedLightMap.rows - 1, Math.floor(mapCenterY + mapRadiusY));
-    let sum = 0;
-    let pixelCount = 0;
-
-    for (let y = top; y <= bottom; y++) {
-        for (let x = left; x <= right; x++) {
-            const dx = (x - mapCenterX) / mapRadiusX;
-            const dy = (y - mapCenterY) / mapRadiusY;
-            if (dx * dx + dy * dy > 1) continue;
-            sum += normalizedLightMap.data[y * normalizedLightMap.cols + x];
-            pixelCount++;
-        }
-    }
-
-    return pixelCount > 0 ? Math.round(sum / pixelCount) : null;
-}
-
-function updateReferenceStats() {
-    if (!referenceStats) return;
-    if (!currentMat || referencePoints.length === 0) {
-        referenceStats.innerHTML = '<div class="reference-stats-summary">Точек: 0; диапазон: -; среднее: -</div>';
+function updatePaperAnchorStats() {
+    if (!paperAnchorStats) return;
+    if (!currentMat || paperAnchors.length === 0) {
+        paperAnchorStats.innerHTML = `
+            <div class="reference-stats-summary">
+                <div>Опорных точек: 0</div>
+                <div>Диапазон от - до -</div>
+                <div>Среднее значение -</div>
+            </div>
+        `;
         return;
     }
 
-    const radius = getReferenceRadius();
+    const radius = getPaperAnchorRadius();
     const minimum = [255, 255, 255];
     const maximum = [0, 0, 0];
     const sum = [0, 0, 0];
     let pixelCount = 0;
-    const currentData = isFloatMat(currentMat) ? currentMat.data32F : currentMat.data;
+    const usesFloatData = isFloatMat(currentMat);
+    const valueScale = usesFloatData ? 255 : 1;
+    const currentData = usesFloatData ? currentMat.data32F : currentMat.data;
 
-    const pointStats = referencePoints.map((point) => {
-        const pointSum = [0, 0, 0];
-        let pointPixelCount = 0;
-
-        getPixelsInReferenceCircle(point, radius, (x, y) => {
+    paperAnchors.forEach((point) => {
+        forEachPixelInPaperAnchorArea(point, radius, (x, y) => {
             const pixelIndex = (y * currentMat.cols + x) * 4;
             for (let channel = 0; channel < 3; channel++) {
-                const value = currentData[pixelIndex + channel] * (isFloatMat(currentMat) ? 255 : 1);
+                const value = currentData[pixelIndex + channel] * valueScale;
                 minimum[channel] = Math.min(minimum[channel], value);
                 maximum[channel] = Math.max(maximum[channel], value);
                 sum[channel] += value;
-                pointSum[channel] += value;
             }
             pixelCount++;
-            pointPixelCount++;
         });
-
-        return {
-            rgb: pointSum.map((value) => Math.round(value / pointPixelCount)),
-            lightMap: getNormalizedLightMapAverage(point, radius)
-        };
     });
 
+    if (pixelCount === 0) {
+        paperAnchorStats.innerHTML = `
+            <div class="reference-stats-summary">
+                <div>Опорных точек: ${paperAnchors.length}</div>
+                <div>Диапазон от - до -</div>
+                <div>Среднее значение -</div>
+            </div>
+        `;
+        return;
+    }
+
     const average = sum.map((value) => Math.round(value / pixelCount));
-    const pointRows = pointStats.map((stats, index) => {
-        const mapValue = stats.lightMap === null ? 'карта: -' : `карта: ${stats.lightMap}`;
-        const typeLabels = { paper: 'бумага', black: 'чёрный', white: 'белый' };
-        return `<li>${typeLabels[referencePoints[index].type]}: яркость ${getBrightness(stats.rgb)}; ${mapValue}</li>`;
-    }).join('');
-    referenceStats.innerHTML = `
-        <div class="reference-stats-summary">Точек: ${referencePoints.length}; диапазон: от ${formatRgb(minimum)} до ${formatRgb(maximum)}; среднее: ${formatRgb(average)}</div>
-        <ol class="reference-stats-points">${pointRows}</ol>
+    paperAnchorStats.innerHTML = `
+        <div class="reference-stats-summary">
+            <div>Опорных точек: ${paperAnchors.length}</div>
+            <div>Диапазон от ${formatRgb(minimum)} до ${formatRgb(maximum)}</div>
+            <div>Среднее значение ${formatRgb(average)}</div>
+        </div>
     `;
 }
 
@@ -569,31 +597,32 @@ fixCurvedEdgesBtn.addEventListener('click', () => {
     });
 });
 
-// Клик по кнопке "Определить маску фона"
+// Клик по кнопке "Detect Blank Paper"
 detectSheetMaskBtn.addEventListener('click', () => {
-    if (!currentMat) return;
+    if (!currentMat || !primaryPaperMap) return;
 
-    runStep('Определение маски фона...', () => {
+    runStep('Определение не-бумажных пикселей...', () => {
+        const detectedMask = buildBlankPaperMask(currentMat, primaryPaperMap, getPaperDifferenceThreshold());
         clearMaskMat();
         clearLightMapMat();
-        sheetMask = buildSheetMask(currentMat);
+        clearLightMapView();
+        sheetMask = detectedMask;
         state.maskEditing = true;
-        referencePoints.length = 0;
-        setReferencePointEditing(false);
+        setPaperAnchorEditing(false);
         setMaskPaintMode('add');
         renderMaskEditView();
     });
 });
 
 recalcLightMapBtn.addEventListener('click', () => {
-    if (!currentMat || !sheetMask) return;
+    if (!currentMat || !primaryPaperMap || !sheetMask) return;
 
     runStep('Пересчет карты освещенности...', () => {
         clearLightMapMat();
-        const lightMaps = buildNormalizedLightMap(currentMat, sheetMask);
+        const lightMaps = buildRefinedLightMap(currentMat, primaryPaperMap, sheetMask);
         lightMap = lightMaps.lightMap;
-        normalizedLightMap = lightMaps.normalizedLightMap;
-        updateReferenceStats();
+        lightMapPreview = lightMaps.previewMap;
+        updatePaperAnchorStats();
         renderLightMapView();
     });
 });
@@ -605,16 +634,7 @@ applyLightMapBtn.addEventListener('click', () => {
         const correctedMat = applyBrightnessWithLightMap(
             currentMat,
             lightMap,
-            {
-                mode: paperMode,
-                referencePoints,
-                referenceRadius: getReferenceRadius(),
-                targetColors: {
-                    black: parseHexColor(blackColorPicker.value),
-                    paper: parseHexColor(paperColorPicker.value),
-                    white: parseHexColor(whiteColorPicker.value)
-                }
-            }
+            parseHexColor(targetPaperColor.value)
         );
         setCurrentMat(correctedMat);
         resetGeometryState();
@@ -630,7 +650,10 @@ stretchBrightnessBtn.addEventListener('click', () => {
     runStep('Коррекция яркости...', () => {
         const correctedMat = stretchBrightness(currentMat, blackPointInput.value, whitePointInput.value);
         setCurrentMat(correctedMat);
+        invalidatePaperAnalysis();
+        setPaperAnchorEditing(false);
         renderRawCanvas();
+        renderMaskEditView();
         updateSaveData();
     });
 });
@@ -645,50 +668,53 @@ maskEraseBtn.addEventListener('click', () => {
     setMaskPaintMode('erase');
 });
 
-paperModeWhiteBtn.addEventListener('click', () => {
-    if (!state.maskEditing) return;
-    paperMode = 'white';
-    setReferencePointEditing(false);
-    syncUi();
-    renderMaskEditView();
-});
+function togglePaperAnchorEditing() {
+    if (!state.imageLoaded || state.busy) return;
 
-paperModeColorBtn.addEventListener('click', () => {
-    if (!state.maskEditing) return;
-    paperMode = 'colored';
-    syncUi();
-    renderMaskEditView();
-});
+    if (paperAnchorEditing) {
+        setPaperAnchorEditing(false);
+        runStep('Построение предварительной карты бумаги...', () => {
+            const threshold = estimatePaperTextureThreshold(currentMat, paperAnchors, getPaperAnchorRadius());
+            const nextPaperMap = buildPrimaryPaperMap(currentMat, paperAnchors, getPaperAnchorRadius());
+            clearPrimaryPaperMap();
+            primaryPaperMap = nextPaperMap;
+            paperDifferenceThreshold.value = threshold;
+            paperDifferenceThresholdValue.value = threshold;
+            renderPrimaryPaperMapView();
+            syncUi();
+        });
+        return;
+    }
 
-function toggleReferencePointEditing(type) {
-    if (!state.maskEditing || paperMode !== 'colored') return;
-    setReferencePointEditing(!(referencePointEditing && referencePointType === type), type);
+    invalidatePaperAnalysis();
+    setPaperAnchorEditing(true);
+    processStatus.innerText = '';
+    renderMaskEditView();
 }
 
-addReferencePointBtn.addEventListener('click', () => toggleReferencePointEditing('paper'));
-addBlackReferencePointBtn.addEventListener('click', () => toggleReferencePointEditing('black'));
-addWhiteReferencePointBtn.addEventListener('click', () => toggleReferencePointEditing('white'));
+addPaperAnchorBtn.addEventListener('click', togglePaperAnchorEditing);
 
 function updateCursor(event) {
-    if (!state.maskEditing || !sheetMask || !currentMat) {
+    if (!currentMat || (!paperAnchorEditing && !(state.maskEditing && sheetMask))) {
         viewport.clearCursor();
         return;
     }
     const point = viewport.imagePointFromEvent(event);
-    const radius = paperMode === 'colored' && referencePointEditing ? getReferenceRadius() : getBrushRadius();
-    const color = paperMode === 'colored' && referencePointEditing ? '#2f76d2' : '#00ff50';
+    const radius = paperAnchorEditing ? getPaperAnchorRadius() : getBrushRadius();
+    const color = paperAnchorEditing ? '#2f76d2' : '#00ff50';
     viewport.renderCursorCircle(point, radius, color);
 }
 
 function handlePointerDown(event) {
     if (!currentMat || state.busy) return;
 
+    if (paperAnchorEditing) {
+        paperAnchorTool.pointerDown(event);
+        return;
+    }
+
     if (state.maskEditing && sheetMask) {
-        if (paperMode === 'colored' && referencePointEditing) {
-            referenceTool.pointerDown(event);
-            return;
-        }
-        if (lightMap || normalizedLightMap) {
+        if (lightMap || lightMapPreview) {
             clearLightMapMat();
             clearLightMapView();
             syncUi();
@@ -705,8 +731,8 @@ function handlePointerMove(event) {
     if (!currentMat || state.busy) return;
     updateCursor(event);
 
-    if (state.maskEditing && referencePointEditing) {
-        referenceTool.pointerMove(event);
+    if (paperAnchorEditing) {
+        paperAnchorTool.pointerMove(event);
         return;
     }
 
@@ -719,7 +745,7 @@ function handlePointerMove(event) {
 }
 
 function finishPointerInteraction() {
-    referenceTool.pointerUp((point) => viewport.isInsideImage(point));
+    paperAnchorTool.pointerUp((point) => viewport.isInsideImage(point));
     maskTool.pointerUp();
     geometryTool.pointerUp();
 }
